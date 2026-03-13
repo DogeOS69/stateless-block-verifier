@@ -74,6 +74,9 @@ fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderEr
             "L2MessageQueue contract not found",
         ))
     })?;
+    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
+    // for the block's final queue state, even if execution touched other queue slots first.
+    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
     Ok(())
 }
 
@@ -86,9 +89,6 @@ mod tests {
         hardforks::Hardfork,
     };
 
-    // These upstream fixtures predate DogeOS's post-execution L2MessageQueue reads and do not
-    // include the extra trie nodes needed to resolve `messageRoot` and `nextMessageIndex`.
-    #[ignore = "legacy upstream fixtures omit L2MessageQueue proof nodes required by DogeOS"]
     #[rstest::rstest]
     fn test_euclid_v2(
         #[files("../../testdata/scroll/euclidv2/*.json")]
@@ -101,7 +101,6 @@ mod tests {
         run_host(&[witness], chain_spec).unwrap();
     }
 
-    #[ignore = "legacy upstream fixtures omit L2MessageQueue proof nodes required by DogeOS"]
     #[rstest::rstest]
     fn test_feynman(
         #[files("../../testdata/scroll/feynman/*.json")]

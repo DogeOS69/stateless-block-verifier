@@ -34,6 +34,10 @@ If this fixture needs to be refreshed, verify it still passes:
 cargo run -p sbv-cli --features scroll -- run testdata/dogeos/next-message-index/20240125.json
 ```
 
-Legacy fixtures under `testdata/scroll/` were collected before DogeOS started reading
-`L2MessageQueue` after execution, so they do not contain the extra proof nodes needed
-for `messageRoot` / `nextMessageIndex` unless the block touched that contract.
+On this branch, `sbv-cli dump --features scroll` appends `L2MessageQueue` proof nodes from
+both the parent state and the block's own state automatically, so fixtures remain valid
+whether or not the block itself mutates that contract.
+
+The older fixtures under `testdata/scroll/` were backfilled with the same account/storage
+proof nodes for `messageRoot` / `nextMessageIndex` so the full Scroll fixture sweep keeps
+covering DogeOS's post-execution queue reads.
