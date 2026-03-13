@@ -38,7 +38,7 @@ pub struct VerifyResult {
     /// Withdrawal root after executing the witnesses.
     #[cfg(feature = "scroll")]
     pub withdraw_root: B256,
-    /// Next message index after executing the witnesses.
+    /// Next L2-to-L1 message index from Scroll's L2MessageQueue after executing the witnesses.
     #[cfg(feature = "scroll")]
     pub next_message_index: u64,
 }
@@ -144,10 +144,16 @@ pub fn run(
         post_state_root,
         gas_used,
         #[cfg(feature = "scroll")]
-        withdraw_root: withdraw_root(&trie)
-            .map_err(|_| StatelessValidationError::Custom("failed to get withdraw root"))?,
+        withdraw_root: withdraw_root(&trie).map_err(|e| {
+            StatelessValidationError::StatelessExecutionFailed(format!(
+                "failed to get withdraw root: {e}"
+            ))
+        })?,
         #[cfg(feature = "scroll")]
-        next_message_index: next_message_index(&trie)
-            .map_err(|_| StatelessValidationError::Custom("failed to get next message index"))?,
+        next_message_index: next_message_index(&trie).map_err(|e| {
+            StatelessValidationError::StatelessExecutionFailed(format!(
+                "failed to get next message index: {e}"
+            ))
+        })?,
     })
 }

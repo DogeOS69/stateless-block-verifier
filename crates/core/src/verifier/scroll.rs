@@ -9,6 +9,14 @@ use sbv_primitives::{
 use sbv_trie::SparseState;
 use std::{io, sync::Arc};
 
+/// L2MessageQueue pre-deployed address.
+const L2_MESSAGE_QUEUE: Address =
+    sbv_primitives::address!("5300000000000000000000000000000000000000");
+/// Storage slot of messageRoot in L2MessageQueue.
+const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
+/// Storage slot of nextMessageIndex in L2MessageQueue (inherited from AppendOnlyMerkleTree).
+const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
+
 /// State commit mode for the block witness verification process.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(
@@ -41,38 +49,32 @@ pub fn run_host(
 ///
 /// Note: this should not be confused with the withdrawal of the beacon chain.
 pub(super) fn withdraw_root(state: &SparseState) -> Result<B256, ProviderError> {
-    /// L2MessageQueue pre-deployed address
-    pub const ADDRESS: Address =
-        sbv_primitives::address!("5300000000000000000000000000000000000000");
-    /// the slot of withdraw root in L2MessageQueue
-    pub const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
-
-    state
-        .account(ADDRESS)?
-        .expect("L2MessageQueue contract not found");
-    let withdraw_root = state.storage(ADDRESS, WITHDRAW_TRIE_ROOT_SLOT)?;
+    ensure_l2_message_queue_account(state)?;
+    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
     Ok(withdraw_root.into())
 }
 
-/// Get the next withdrawal message index of Scroll's L2 message queue.
+/// Get the next message index from Scroll's L2 message queue.
 pub(super) fn next_message_index(state: &SparseState) -> Result<u64, ProviderError> {
-    /// L2MessageQueue pre-deployed address
-    pub const ADDRESS: Address =
-        sbv_primitives::address!("5300000000000000000000000000000000000000");
-    /// the slot of next message index in L2MessageQueue
-    pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
-
-    state
-        .account(ADDRESS)?
-        .expect("L2MessageQueue contract not found");
-
-    let next_message_index = state.storage(ADDRESS, NEXT_MESSAGE_INDEX_SLOT)?;
+    ensure_l2_message_queue_account(state)?;
+    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
     u64::try_from(next_message_index).map_err(|_| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("nextMessageIndex does not fit into u64: {next_message_index}"),
         ))
     })
+}
+
+fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
+    // Touching the account primes the underlying storage trie lookup used by `state.storage`.
+    let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
+        ProviderError::other(io::Error::new(
+            io::ErrorKind::NotFound,
+            "L2MessageQueue contract not found",
+        ))
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]
