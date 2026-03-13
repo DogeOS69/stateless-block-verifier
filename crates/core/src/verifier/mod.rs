@@ -38,6 +38,9 @@ pub struct VerifyResult {
     /// Withdrawal root after executing the witnesses.
     #[cfg(feature = "scroll")]
     pub withdraw_root: B256,
+    /// Next message index after executing the witnesses.
+    #[cfg(feature = "scroll")]
+    pub next_message_index: u64,
 }
 
 /// Verify the block witness and return the gas used.
@@ -143,5 +146,8 @@ pub fn run(
         #[cfg(feature = "scroll")]
         withdraw_root: withdraw_root(&trie)
             .map_err(|_| StatelessValidationError::Custom("failed to get withdraw root"))?,
+        #[cfg(feature = "scroll")]
+        next_message_index: next_message_index(&trie)
+            .map_err(|_| StatelessValidationError::Custom("failed to get next message index"))?,
     })
 }

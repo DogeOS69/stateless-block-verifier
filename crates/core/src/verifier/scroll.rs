@@ -7,7 +7,7 @@ use sbv_primitives::{
     Address, B256, U256, chainspec::ChainSpec, types::reth::evm::execute::ProviderError,
 };
 use sbv_trie::SparseState;
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
 /// State commit mode for the block witness verification process.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -52,6 +52,27 @@ pub(super) fn withdraw_root(state: &SparseState) -> Result<B256, ProviderError> 
         .expect("L2MessageQueue contract not found");
     let withdraw_root = state.storage(ADDRESS, WITHDRAW_TRIE_ROOT_SLOT)?;
     Ok(withdraw_root.into())
+}
+
+/// Get the next withdrawal message index of Scroll's L2 message queue.
+pub(super) fn next_message_index(state: &SparseState) -> Result<u64, ProviderError> {
+    /// L2MessageQueue pre-deployed address
+    pub const ADDRESS: Address =
+        sbv_primitives::address!("5300000000000000000000000000000000000000");
+    /// the slot of next message index in L2MessageQueue
+    pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
+
+    state
+        .account(ADDRESS)?
+        .expect("L2MessageQueue contract not found");
+
+    let next_message_index = state.storage(ADDRESS, NEXT_MESSAGE_INDEX_SLOT)?;
+    u64::try_from(next_message_index).map_err(|_| {
+        ProviderError::other(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("nextMessageIndex does not fit into u64: {next_message_index}"),
+        ))
+    })
 }
 
 #[cfg(test)]
