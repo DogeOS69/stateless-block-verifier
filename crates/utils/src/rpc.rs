@@ -15,17 +15,11 @@ use sbv_primitives::{
 };
 use serde::Deserialize;
 #[cfg(feature = "scroll")]
-use sbv_primitives::{Address, U256, keccak256};
+use sbv_core::verifier::{L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT, WITHDRAW_TRIE_ROOT_SLOT};
+#[cfg(feature = "scroll")]
+use sbv_primitives::keccak256;
 #[cfg(feature = "scroll")]
 use std::collections::HashSet;
-
-#[cfg(feature = "scroll")]
-const L2_MESSAGE_QUEUE: Address =
-    sbv_primitives::address!("5300000000000000000000000000000000000000");
-#[cfg(feature = "scroll")]
-const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
-#[cfg(feature = "scroll")]
-const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
 
 /// Extension trait for [`Provider`](Provider).
 #[async_trait::async_trait]
@@ -129,7 +123,9 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     number: BlockNumber,
     execution_witness: &mut ExecutionWitness,
 ) -> TransportResult<()> {
-    let parent_number = number.checked_sub(1).expect("genesis block is not traceable");
+    let parent_number = number
+        .checked_sub(1)
+        .expect("dump_block_witness rejects genesis blocks");
     let storage_keys = vec![
         B256::from(WITHDRAW_TRIE_ROOT_SLOT),
         B256::from(NEXT_MESSAGE_INDEX_SLOT),
@@ -301,7 +297,9 @@ impl<'a, P: ProviderExt> DumpBlockWitness<'a, P> {
 
         #[cfg(feature = "scroll")]
         {
-            let mut execution_witness = self.builder.execution_witness.take().unwrap();
+            let mut execution_witness = self.builder.execution_witness.take().expect(
+                "execution_witness must be populated before appending L2 message queue proofs",
+            );
             append_l2_message_queue_proofs(self.provider, self.number, &mut execution_witness)
                 .await?;
             self.builder = self.builder.execution_witness(execution_witness);
