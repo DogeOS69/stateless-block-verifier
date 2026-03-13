@@ -12,7 +12,7 @@ truth and keeping DogeOS work as a thin overlay.
 
 ## Update workflow
 
-1. `git fetch upstream origin --prune`
+1. `git fetch --all --prune`
 2. `git checkout master`
 3. `git merge --ff-only upstream/master`
 4. `git push origin master`
