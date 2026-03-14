@@ -134,6 +134,9 @@ mod tests {
         let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
             .expect_err("values above u64::MAX must be rejected");
 
-        assert!(err.to_string().contains("nextMessageIndex does not fit into u64"));
+        assert!(
+            err.to_string()
+                .contains("nextMessageIndex does not fit into u64")
+        );
     }
 }

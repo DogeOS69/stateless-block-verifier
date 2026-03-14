@@ -3,7 +3,11 @@
 use crate::witness::WitnessBuilder;
 use alloy_provider::Provider;
 use alloy_transport::TransportResult;
+#[cfg(feature = "scroll")]
+use sbv_core::verifier::{L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT, WITHDRAW_TRIE_ROOT_SLOT};
 use sbv_core::witness::BlockWitness;
+#[cfg(feature = "scroll")]
+use sbv_primitives::keccak256;
 use sbv_primitives::{
     B256, BlockNumber, Bytes, ChainId,
     alloy_primitives::map::B256HashMap,
@@ -14,10 +18,6 @@ use sbv_primitives::{
     },
 };
 use serde::Deserialize;
-#[cfg(feature = "scroll")]
-use sbv_core::verifier::{L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT, WITHDRAW_TRIE_ROOT_SLOT};
-#[cfg(feature = "scroll")]
-use sbv_primitives::keccak256;
 #[cfg(feature = "scroll")]
 use std::collections::HashSet;
 
@@ -141,10 +141,12 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
 
         extend_execution_witness_state(
             execution_witness,
-            proof
-                .account_proof
-                .into_iter()
-                .chain(proof.storage_proof.into_iter().flat_map(|proof| proof.proof)),
+            proof.account_proof.into_iter().chain(
+                proof
+                    .storage_proof
+                    .into_iter()
+                    .flat_map(|proof| proof.proof),
+            ),
         );
     }
 
