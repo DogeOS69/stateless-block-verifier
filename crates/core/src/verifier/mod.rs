@@ -138,22 +138,21 @@ pub fn run(
         }
     }
 
+    #[cfg(feature = "scroll")]
+    let (withdraw_root, next_message_index) = l2_message_queue_info(&trie).map_err(|e| {
+        StatelessValidationError::StatelessExecutionFailed(format!(
+            "failed to get L2 message queue info: {e}"
+        ))
+    })?;
+
     Ok(VerifyResult {
         blocks,
         pre_state_root,
         post_state_root,
         gas_used,
         #[cfg(feature = "scroll")]
-        withdraw_root: withdraw_root(&trie).map_err(|e| {
-            StatelessValidationError::StatelessExecutionFailed(format!(
-                "failed to get withdraw root: {e}"
-            ))
-        })?,
+        withdraw_root,
         #[cfg(feature = "scroll")]
-        next_message_index: next_message_index(&trie).map_err(|e| {
-            StatelessValidationError::StatelessExecutionFailed(format!(
-                "failed to get next message index: {e}"
-            ))
-        })?,
+        next_message_index,
     })
 }

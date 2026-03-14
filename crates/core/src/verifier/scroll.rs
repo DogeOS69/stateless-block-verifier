@@ -10,12 +10,12 @@ use sbv_trie::SparseState;
 use std::{io, sync::Arc};
 
 /// L2MessageQueue pre-deployed address.
-const L2_MESSAGE_QUEUE: Address =
+pub const L2_MESSAGE_QUEUE: Address =
     sbv_primitives::address!("5300000000000000000000000000000000000000");
 /// Storage slot of messageRoot in L2MessageQueue.
-const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
+pub const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
 /// Storage slot of nextMessageIndex in L2MessageQueue (inherited from AppendOnlyMerkleTree).
-const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
+pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
 
 /// State commit mode for the block witness verification process.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -45,19 +45,7 @@ pub fn run_host(
     run(witnesses, chain_spec, compression_infos)
 }
 
-/// Get the withdrawal trie root of scroll.
-///
-/// Note: this should not be confused with the withdrawal of the beacon chain.
-pub(super) fn withdraw_root(state: &SparseState) -> Result<B256, ProviderError> {
-    ensure_l2_message_queue_account(state)?;
-    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    Ok(withdraw_root.into())
-}
-
-/// Get the next message index from Scroll's L2 message queue.
-pub(super) fn next_message_index(state: &SparseState) -> Result<u64, ProviderError> {
-    ensure_l2_message_queue_account(state)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
+fn next_message_index_from_value(next_message_index: U256) -> Result<u64, ProviderError> {
     u64::try_from(next_message_index).map_err(|_| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -66,22 +54,41 @@ pub(super) fn next_message_index(state: &SparseState) -> Result<u64, ProviderErr
     })
 }
 
+/// Get the Scroll L2 message queue outputs committed after block execution.
+///
+/// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
+/// chain.
+pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
+    ensure_l2_message_queue_account(state)?;
+    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
+    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
+    Ok((
+        withdraw_root.into(),
+        next_message_index_from_value(next_message_index)?,
+    ))
+}
+
 fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
-    // Touching the account primes the underlying storage trie lookup used by `state.storage`.
+    // Verify the L2MessageQueue contract exists in the post-execution state.
+    // This also makes the account's current `storage_root` available for the refresh below.
     let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::NotFound,
-            "L2MessageQueue contract not found",
+            format!("L2MessageQueue contract not found at {L2_MESSAGE_QUEUE}"),
         ))
     })?;
+    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
+    // for the block's final queue state, even if execution touched other queue slots first.
+    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
     Ok(())
 }
 
 #[cfg(test)]
+#[cfg(feature = "scroll-compress-info")]
 mod tests {
     use super::*;
     use sbv_primitives::{
-        chainspec::{Chain, build_chain_spec_force_hardfork},
+        chainspec::{Chain, build_chain_spec_force_hardfork, get_chain_spec},
         hardforks::Hardfork,
     };
 
@@ -107,5 +114,29 @@ mod tests {
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
         run_host(&[witness], chain_spec).unwrap();
+    }
+
+    #[test]
+    fn test_next_message_index_feynman_fixture() {
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/20240125.json"
+        ))
+        .unwrap();
+        let chain_spec = get_chain_spec(Chain::from_id(witness.chain_id)).unwrap();
+
+        let result = run_host(&[witness], chain_spec).unwrap();
+
+        assert_eq!(result.next_message_index, 208530);
+    }
+
+    #[test]
+    fn test_next_message_index_overflow() {
+        let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
+            .expect_err("values above u64::MAX must be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("nextMessageIndex does not fit into u64")
+        );
     }
 }

@@ -27,8 +27,12 @@ part of `VerifyResult`.
 - If upstream starts exposing `nextMessageIndex` directly, drop this overlay
   commit instead of carrying a duplicate implementation.
 
-## Future test coverage
+## Test coverage
 
-- Add DogeOS-only witness fixtures under `testdata/dogeos/next-message-index/`.
-- Prefer one narrow regression test that proves the extracted value matches the
-  queue contract state for a known witness.
+- `testdata/dogeos/next-message-index/20240125.json` pins a real Scroll mainnet
+  witness where `nextMessageIndex` changes during the block.
+- `sbv-core` asserts the extracted `next_message_index` matches the on-chain
+  value for that fixture.
+- The committed Scroll fixture sweep under `testdata/scroll/` is backfilled with
+  `L2MessageQueue` proof nodes so the existing replay tests continue to work on
+  the DogeOS verifier path.
