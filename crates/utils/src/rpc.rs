@@ -117,6 +117,23 @@ where
     }
 }
 
+/// Scroll's eth_getProof response uses non-standard account fields (poseidonCodeHash,
+/// keccakCodeHash, codeSize instead of codeHash), so we deserialize only the proof
+/// nodes we actually need.
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollProofResponse {
+    account_proof: Vec<Bytes>,
+    storage_proof: Vec<ScrollStorageProof>,
+}
+
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+struct ScrollStorageProof {
+    proof: Vec<Bytes>,
+}
+
 #[cfg(feature = "scroll")]
 async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     provider: &P,
@@ -132,11 +149,12 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     ];
 
     for proof_block in [parent_number, number] {
-        let proof = provider
-            .get_proof(L2_MESSAGE_QUEUE, storage_keys.clone())
-            // The witness executes from the parent root, but post-execution queue reads can still
-            // require nodes from the block's final queue state if the contract was modified.
-            .block_id(proof_block.into())
+        let proof: ScrollProofResponse = provider
+            .client()
+            .request(
+                "eth_getProof",
+                (L2_MESSAGE_QUEUE, &storage_keys, BlockNumberOrTag::Number(proof_block)),
+            )
             .await?;
 
         extend_execution_witness_state(
@@ -145,7 +163,7 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
                 proof
                     .storage_proof
                     .into_iter()
-                    .flat_map(|proof| proof.proof),
+                    .flat_map(|p| p.proof),
             ),
         );
     }
