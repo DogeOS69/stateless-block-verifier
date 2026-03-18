@@ -2,7 +2,7 @@
 
 use crate::witness::WitnessBuilder;
 use alloy_provider::Provider;
-use alloy_transport::TransportResult;
+use alloy_transport::{TransportErrorKind, TransportResult};
 #[cfg(feature = "scroll")]
 use sbv_core::verifier::{L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT, WITHDRAW_TRIE_ROOT_SLOT};
 use sbv_core::witness::BlockWitness;
@@ -18,6 +18,7 @@ use sbv_primitives::{
     },
 };
 use serde::Deserialize;
+use serde_json::Value;
 #[cfg(feature = "scroll")]
 use std::collections::HashSet;
 
@@ -29,31 +30,10 @@ pub trait ProviderExt: Provider<Network> {
         &self,
         number: BlockNumberOrTag,
     ) -> TransportResult<ExecutionWitness> {
-        /// Represents the execution witness of a block. Contains an optional map of state preimages.
-        #[derive(Debug, Deserialize)]
-        struct GethExecutionWitness {
-            pub state: B256HashMap<Bytes>,
-            pub codes: B256HashMap<Bytes>,
-        }
-
-        #[derive(Debug, Deserialize)]
-        #[serde(untagged)]
-        enum ExecutionWitnessDeHelper {
-            Standard(ExecutionWitness),
-            Geth(GethExecutionWitness),
-        }
-
         self.client()
-            .request::<_, ExecutionWitnessDeHelper>("debug_executionWitness", (number,))
+            .request::<_, Value>("debug_executionWitness", (number,))
             .await
-            .map(|response| match response {
-                ExecutionWitnessDeHelper::Standard(witness) => witness,
-                ExecutionWitnessDeHelper::Geth(witness) => ExecutionWitness {
-                    state: witness.state.into_values().collect(),
-                    codes: witness.codes.into_values().collect(),
-                    ..Default::default()
-                },
-            })
+            .and_then(parse_execution_witness_value)
     }
 
     /// Dump the block witness for a block.
@@ -99,6 +79,53 @@ pub trait ProviderExt: Provider<Network> {
 
 impl<P: Provider<Network>> ProviderExt for P {}
 
+fn parse_execution_witness_value(value: Value) -> TransportResult<ExecutionWitness> {
+    // If "state" is a JSON object (map), this is a Geth-style witness with keyed maps
+    // instead of arrays. Handle it by extracting values only.
+    let is_map_format = value.get("state").is_some_and(Value::is_object);
+    if !is_map_format {
+        return serde_json::from_value(value).map_err(TransportErrorKind::custom);
+    }
+
+    let Value::Object(mut map) = value else {
+        return serde_json::from_value(value).map_err(TransportErrorKind::custom);
+    };
+
+    let as_map = |map: &mut serde_json::Map<String, Value>,
+                  name: &str|
+     -> TransportResult<Vec<Bytes>> {
+        if let Some(Value::Object(obj)) = map.remove(name) {
+            serde_json::from_value::<B256HashMap<Bytes>>(Value::Object(obj))
+                .map(|items| items.into_values().collect())
+                .map_err(TransportErrorKind::custom)
+        } else {
+            Ok(Vec::new())
+        }
+    };
+
+    Ok(ExecutionWitness {
+        state: as_map(&mut map, "state")?,
+        codes: as_map(&mut map, "codes")?,
+        // Scroll witnesses do not consume `keys` or `headers` during dump/build, and some public
+        // providers expose `headers` as expanded JSON objects instead of serialized bytes.
+        ..Default::default()
+    })
+}
+
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProofResponse {
+    account_proof: Vec<Bytes>,
+    storage_proof: Vec<StorageProof>,
+}
+
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+struct StorageProof {
+    proof: Vec<Bytes>,
+}
+
 #[cfg(feature = "scroll")]
 fn extend_execution_witness_state<I>(execution_witness: &mut ExecutionWitness, nodes: I)
 where
@@ -132,11 +159,16 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     ];
 
     for proof_block in [parent_number, number] {
-        let proof = provider
-            .get_proof(L2_MESSAGE_QUEUE, storage_keys.clone())
-            // The witness executes from the parent root, but post-execution queue reads can still
-            // require nodes from the block's final queue state if the contract was modified.
-            .block_id(proof_block.into())
+        let proof: ProofResponse = provider
+            .client()
+            .request(
+                "eth_getProof",
+                (
+                    L2_MESSAGE_QUEUE,
+                    storage_keys.clone(),
+                    BlockNumberOrTag::from(proof_block),
+                ),
+            )
             .await?;
 
         extend_execution_witness_state(
@@ -342,5 +374,31 @@ mod tests {
         );
 
         assert_eq!(execution_witness.state, vec![existing, inserted]);
+    }
+
+    #[test]
+    fn proof_response_accepts_onfinality_shape() {
+        let proof = serde_json::from_value::<ProofResponse>(serde_json::json!({
+            "address": "0x5300000000000000000000000000000000000000",
+            "accountProof": ["0xf8"],
+            "balance": "0x0",
+            "keccakCodeHash": "0x7f6f0daf66a63b4d504fabde8e9fa491ff678bf22082d8fee03ac3064fcf7de9",
+            "codeSize": "0x680",
+            "nonce": "0x0",
+            "poseidonCodeHash": "0x0",
+            "storageHash": "0x301457080d8e5c68c5070662fe8bae3a468fe54be654f33cd0edb54879c0ee75",
+            "storageProof": [
+                {
+                    "key": "0x0",
+                    "value": "0x2e89c375ba7202f8d98dda2447131cb116430cff9bfbcf9f2f30ea7cbda95210",
+                    "proof": ["0xf9"]
+                }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(proof.account_proof, vec![Bytes::from_static(&[0xf8])]);
+        assert_eq!(proof.storage_proof.len(), 1);
+        assert_eq!(proof.storage_proof[0].proof, vec![Bytes::from_static(&[0xf9])]);
     }
 }

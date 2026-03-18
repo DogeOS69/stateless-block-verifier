@@ -1,7 +1,7 @@
 use eyre::eyre;
 use sbv::{
     core::{
-        verifier::{self, VerifyResult},
+        verifier::{self, StatelessValidationError, VerifyResult},
         witness::BlockWitness,
     },
     primitives::chainspec::ChainSpec,
@@ -27,5 +27,10 @@ pub fn verify_catch_panics(
             })
             .unwrap_or_else(|| eyre!("task panics"))
     })
-    .and_then(|r| r.map_err(eyre::Error::from))
+    .and_then(|r| {
+        r.map_err(|err| match err {
+            StatelessValidationError::StatelessExecutionFailed(msg) => eyre::Error::msg(msg),
+            other => eyre::Error::from(other),
+        })
+    })
 }

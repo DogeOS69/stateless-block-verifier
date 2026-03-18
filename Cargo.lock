@@ -4855,6 +4855,7 @@ dependencies = [
  "sbv-core",
  "sbv-primitives",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

@@ -3,7 +3,8 @@
 use crate::{BlockWitness, EvmExecutor, database::WitnessDatabase, witness::BlockWitnessChunkExt};
 use itertools::Itertools;
 use reth_primitives_traits::RecoveredBlock;
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
+use reth_stateless::StatelessTrie;
+pub use reth_stateless::validation::StatelessValidationError;
 use sbv_primitives::{
     B256, U256,
     chainspec::ChainSpec,
