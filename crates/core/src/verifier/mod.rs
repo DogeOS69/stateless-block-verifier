@@ -105,6 +105,9 @@ pub fn run(
     #[cfg(feature = "scroll")]
     let block_hashes = Default::default();
 
+    #[cfg(feature = "scroll")]
+    let mut last_bundle = None;
+
     for (block, _compression_infos) in blocks.iter().zip_eq(compression_infos) {
         let db = WitnessDatabase::new(&trie, &bytecode, &block_hashes);
 
@@ -118,6 +121,11 @@ pub fn run(
             .execute()
             .map_err(|e| StatelessValidationError::StatelessExecutionFailed(e.to_string()))?;
         gas_used += output.gas_used;
+
+        #[cfg(feature = "scroll")]
+        {
+            last_bundle = Some(output.state.clone());
+        }
 
         // Compute and check the post state root
         let hashed_state =
@@ -139,11 +147,12 @@ pub fn run(
     }
 
     #[cfg(feature = "scroll")]
-    let (withdraw_root, next_message_index) = l2_message_queue_info(&trie).map_err(|e| {
-        StatelessValidationError::StatelessExecutionFailed(format!(
-            "failed to get L2 message queue info: {e}"
-        ))
-    })?;
+    let (withdraw_root, next_message_index) =
+        l2_message_queue_info(&last_bundle.unwrap()).map_err(|e| {
+            StatelessValidationError::StatelessExecutionFailed(format!(
+                "failed to get L2 message queue info: {e}"
+            ))
+        })?;
 
     Ok(VerifyResult {
         blocks,

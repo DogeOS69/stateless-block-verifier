@@ -6,6 +6,7 @@ use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
 use sbv_primitives::{
     Address, B256, U256, chainspec::ChainSpec, types::reth::evm::execute::ProviderError,
 };
+use sbv_primitives::types::revm::database::BundleState;
 use sbv_trie::SparseState;
 use std::{io, sync::Arc};
 
@@ -56,31 +57,36 @@ fn next_message_index_from_value(next_message_index: U256) -> Result<u64, Provid
 
 /// Get the Scroll L2 message queue outputs committed after block execution.
 ///
+/// Reads from the execution `BundleState` rather than the sparse trie, because
+/// `calculate_state_root` compacts the CachedTrie via `hash()`, making subsequent
+/// trie reads panic on unresolved nodes.  For slots not modified during execution,
+/// returns zero (the value carries over from a prior chunk/batch context).
+///
 /// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
 /// chain.
-pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
-    ensure_l2_message_queue_account(state)?;
-    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
+///
+/// TODO(dogeos): once all witnesses include L2MessageQueue proof nodes, fall back to
+/// `state.storage()` for unmodified slots instead of returning zero.
+pub(super) fn l2_message_queue_info(
+    bundle: &BundleState,
+) -> Result<(B256, u64), ProviderError> {
+    let withdraw_root = queue_slot_from_bundle(bundle, WITHDRAW_TRIE_ROOT_SLOT);
+    let next_message_index = queue_slot_from_bundle(bundle, NEXT_MESSAGE_INDEX_SLOT);
     Ok((
         withdraw_root.into(),
         next_message_index_from_value(next_message_index)?,
     ))
 }
 
-fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
-    // Verify the L2MessageQueue contract exists in the post-execution state.
-    // This also makes the account's current `storage_root` available for the refresh below.
-    let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
-        ProviderError::other(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("L2MessageQueue contract not found at {L2_MESSAGE_QUEUE}"),
-        ))
-    })?;
-    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
-    // for the block's final queue state, even if execution touched other queue slots first.
-    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
-    Ok(())
+/// Read a single L2MessageQueue storage slot from the BundleState.
+/// Returns U256::ZERO if the slot was not written during execution.
+fn queue_slot_from_bundle(bundle: &BundleState, slot: U256) -> U256 {
+    bundle
+        .state
+        .get(&L2_MESSAGE_QUEUE)
+        .and_then(|account| account.storage.get(&slot))
+        .map(|s| s.present_value)
+        .unwrap_or(U256::ZERO)
 }
 
 #[cfg(test)]
