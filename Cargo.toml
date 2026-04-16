@@ -39,46 +39,46 @@ multiple-crate-versions = "warn"
 
 [workspace.dependencies]
 # https://github.com/alloy-rs/alloy
-alloy = { version = "1.0.41", default-features = false }
-alloy-consensus = { version = "1.0.41", default-features = false }
-alloy-eips = { version = "1.0.41", default-features = false }
-alloy-network = { version = "1.0.41", default-features = false }
-alloy-provider = { version = "1.0.41", default-features = false }
-alloy-rpc-client = { version = "1.0.41", default-features = false }
-alloy-rpc-types-eth = { version = "1.0.41", default-features = false }
-alloy-rpc-types-debug = { version = "1.0.41", default-features = false }
-alloy-serde = { version = "1.0.41", default-features = false }
-alloy-transport = { version = "1.0.41", default-features = false }
+alloy = { version = "=1.0.41", default-features = false }
+alloy-consensus = { version = "=1.0.41", default-features = false }
+alloy-eips = { version = "=1.0.41", default-features = false }
+alloy-network = { version = "=1.0.41", default-features = false }
+alloy-provider = { version = "=1.0.41", default-features = false }
+alloy-rpc-client = { version = "=1.0.41", default-features = false }
+alloy-rpc-types-eth = { version = "=1.0.41", default-features = false }
+alloy-rpc-types-debug = { version = "=1.0.41", default-features = false }
+alloy-serde = { version = "=1.0.41", default-features = false }
+alloy-transport = { version = "=1.0.41", default-features = false }
 # https://github.com/alloy-rs/rlp
-alloy-rlp = { version = "0.3.10", default-features = false }
+alloy-rlp = { version = "=0.3.10", default-features = false }
 # https://github.com/alloy-rs/trie
-alloy-trie = { version = "0.9.1", default-features = false }
+alloy-trie = { version = "=0.9.1", default-features = false }
 # https://github.com/alloy-rs/core
-alloy-primitives = { version = "1.4.1", default-features = false, features = ["map-hashbrown", "map-fxhash"] }
+alloy-primitives = { version = "=1.4.1", default-features = false, features = ["map-hashbrown", "map-fxhash"] }
 # https://github.com/alloy-rs/evm
-alloy-evm = { version = "0.22.2", default-features = false }
+alloy-evm = { git = "https://github.com/alloy-rs/alloy-evm", tag = "v0.22.2", default-features = false }
 
 revm-scroll = { git = "https://github.com/scroll-tech/scroll-revm", tag = "scroll-v91", default-features = false }
 
-reth-chainspec = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-evm = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-evm-ethereum = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-ethereum-forks = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-execution-types = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-primitives = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-primitives-traits = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-stateless = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-trie = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
+reth-chainspec = { path = "../references/scroll-reth/crates/chainspec", default-features = false }
+reth-evm = { path = "../references/scroll-reth/crates/evm/evm", default-features = false }
+reth-evm-ethereum = { path = "../references/scroll-reth/crates/ethereum/evm", default-features = false }
+reth-ethereum-forks = { path = "../references/scroll-reth/crates/ethereum/hardforks", default-features = false }
+reth-execution-types = { path = "../references/scroll-reth/crates/evm/execution-types", default-features = false }
+reth-primitives = { path = "../references/scroll-reth/crates/primitives", default-features = false }
+reth-primitives-traits = { path = "../references/scroll-reth/crates/primitives-traits", default-features = false }
+reth-stateless = { path = "../references/scroll-reth/crates/stateless", default-features = false }
+reth-trie = { path = "../references/scroll-reth/crates/trie/trie", default-features = false }
 
-reth-scroll-chainspec = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-scroll-evm = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-scroll-forks = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-reth-scroll-primitives = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
+reth-scroll-chainspec = { path = "../references/scroll-reth/crates/scroll/chainspec", default-features = false }
+reth-scroll-evm = { path = "../references/scroll-reth/crates/scroll/evm", default-features = false }
+reth-scroll-forks = { path = "../references/scroll-reth/crates/scroll/hardforks", default-features = false }
+reth-scroll-primitives = { path = "../references/scroll-reth/crates/scroll/primitives", default-features = false }
 
-scroll-alloy-evm = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-scroll-alloy-consensus = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-scroll-alloy-rpc-types = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
-scroll-alloy-network = { git = "https://github.com/scroll-tech/reth", tag = "scroll-v91.2", default-features = false }
+scroll-alloy-evm = { path = "../references/scroll-reth/crates/scroll/alloy/evm", default-features = false }
+scroll-alloy-consensus = { path = "../references/scroll-reth/crates/scroll/alloy/consensus", default-features = false }
+scroll-alloy-rpc-types = { path = "../references/scroll-reth/crates/scroll/alloy/rpc-types", default-features = false }
+scroll-alloy-network = { path = "../references/scroll-reth/crates/scroll/alloy/network", default-features = false }
 
 risc0-ethereum-trie = { git = "https://github.com/risc0/risc0-ethereum" }
 
