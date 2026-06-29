@@ -45,42 +45,21 @@ pub fn run_host(
     run(witnesses, chain_spec, compression_infos)
 }
 
-fn next_message_index_from_value(next_message_index: U256) -> Result<u64, ProviderError> {
-    u64::try_from(next_message_index).map_err(|_| {
-        ProviderError::other(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("nextMessageIndex does not fit into u64: {next_message_index}"),
-        ))
-    })
-}
-
 /// Get the Scroll L2 message queue outputs committed after block execution.
 ///
 /// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
 /// chain.
 pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
-    ensure_l2_message_queue_account(state)?;
-    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
-    Ok((
-        withdraw_root.into(),
-        next_message_index_from_value(next_message_index)?,
-    ))
-}
-
-fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
-    // Verify the L2MessageQueue contract exists in the post-execution state.
-    // This also makes the account's current `storage_root` available for the refresh below.
+    // storage access **MUST** load account first, see: [`SparseState::storage`]
     let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::NotFound,
             format!("L2MessageQueue contract not found at {L2_MESSAGE_QUEUE}"),
         ))
     })?;
-    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
-    // for the block's final queue state, even if execution touched other queue slots first.
-    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
-    Ok(())
+    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
+    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
+    Ok((withdraw_root.into(), next_message_index.to()))
 }
 
 #[cfg(test)]
@@ -127,16 +106,5 @@ mod tests {
         let result = run_host(&[witness], chain_spec).unwrap();
 
         assert_eq!(result.next_message_index, 208530);
-    }
-
-    #[test]
-    fn test_next_message_index_overflow() {
-        let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
-            .expect_err("values above u64::MAX must be rejected");
-
-        assert!(
-            err.to_string()
-                .contains("nextMessageIndex does not fit into u64")
-        );
     }
 }
