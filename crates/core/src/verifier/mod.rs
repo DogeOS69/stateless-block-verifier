@@ -3,7 +3,6 @@
 use crate::{BlockWitness, EvmExecutor, database::WitnessDatabase, witness::BlockWitnessChunkExt};
 use itertools::Itertools;
 use reth_primitives_traits::RecoveredBlock;
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
 use sbv_primitives::{
     B256, U256,
     chainspec::ChainSpec,
@@ -20,6 +19,7 @@ pub use scroll::*;
 
 #[cfg(not(feature = "scroll"))]
 mod ethereum;
+use crate::error::StatelessValidationError;
 #[cfg(not(feature = "scroll"))]
 pub use ethereum::*;
 
@@ -50,7 +50,7 @@ pub fn run(
     #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
 ) -> Result<VerifyResult, StatelessValidationError> {
     if witnesses.is_empty() {
-        return Err(StatelessValidationError::Custom("empty witnesses"));
+        return Err(StatelessValidationError::EmptyWitnesses);
     }
     if !witnesses.has_same_chain_id() {
         return Err(StatelessValidationError::InvalidAncestorChain);
@@ -76,7 +76,8 @@ pub fn run(
             .collect(),
         ..Default::default()
     };
-    let (mut trie, bytecode) = SparseState::new(&execution_witness, pre_state_root)?;
+    let (mut trie, bytecode) = SparseState::new(&execution_witness, pre_state_root)
+        .map_err(|_| StatelessValidationError::SparseStateCreationFailed)?;
 
     let blocks = witnesses
         .iter()
@@ -85,7 +86,7 @@ pub fn run(
             w.build_reth_block()
         })
         .collect::<Result<Vec<RecoveredBlock<Block>>, _>>()
-        .map_err(|_| StatelessValidationError::Custom("sender recovery failed"))?;
+        .map_err(|_| StatelessValidationError::SignerRecovery)?;
 
     if !blocks
         .iter()
@@ -122,7 +123,7 @@ pub fn run(
         // Compute and check the post state root
         let hashed_state =
             HashedPostState::from_bundle_state::<KeccakKeyHasher>(&output.state.state);
-        let state_root = trie.calculate_state_root(hashed_state)?;
+        let state_root = trie.calculate_state_root(hashed_state);
 
         if block.state_root != state_root {
             dev_error!(

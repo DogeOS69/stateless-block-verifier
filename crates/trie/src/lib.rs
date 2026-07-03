@@ -4,7 +4,6 @@
 //! under Apache License 2.0
 
 use alloy_trie::{EMPTY_ROOT_HASH, TrieAccount};
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
 pub use reth_trie::{HashedPostState, KeccakKeyHasher};
 use risc0_ethereum_trie::CachedTrie;
 use sbv_primitives::{
@@ -122,12 +121,12 @@ impl SparseState {
     }
 }
 
-impl StatelessTrie for SparseState {
+impl SparseState {
     /// Initialize the stateless trie using the `ExecutionWitness`.
-    fn new(
+    pub fn new(
         witness: &ExecutionWitness,
         pre_state_root: B256,
-    ) -> Result<(Self, B256Map<Bytecode>), StatelessValidationError> {
+    ) -> alloy_rlp::Result<(Self, B256Map<Bytecode>)> {
         // first, hash all the RLP nodes once
         let rlp_by_digest: B256Map<_> = witness
             .state
@@ -136,8 +135,7 @@ impl StatelessTrie for SparseState {
             .collect();
 
         // construct the state trie from the witness data and the given state root
-        let state = RlpTrie::from_prehashed(pre_state_root, &rlp_by_digest)
-            .map_err(|_| StatelessValidationError::WitnessRevealFailed { pre_state_root })?;
+        let state = RlpTrie::from_prehashed(pre_state_root, &rlp_by_digest)?;
 
         // hash all the supplied bytecode
         let bytecode = witness
@@ -157,7 +155,7 @@ impl StatelessTrie for SparseState {
     }
 
     /// Returns the `TrieAccount` that corresponds to the `Address`.
-    fn account(&self, address: Address) -> Result<Option<TrieAccount>, ProviderError> {
+    pub fn account(&self, address: Address) -> Result<Option<TrieAccount>, ProviderError> {
         let hashed_address = keccak256(address);
         match self.state.get(hashed_address)? {
             None => Ok(None),
@@ -180,7 +178,7 @@ impl StatelessTrie for SparseState {
     }
 
     /// Returns the storage slot value that corresponds to the given (address, slot) tuple.
-    fn storage(&self, address: Address, slot: U256) -> Result<U256, ProviderError> {
+    pub fn storage(&self, address: Address, slot: U256) -> Result<U256, ProviderError> {
         let storages = self.storages.borrow();
         // storage() is always be called after account(), so the storage trie must already exist
         let storage_trie = storages.get(&keccak256(address)).unwrap();
@@ -190,10 +188,7 @@ impl StatelessTrie for SparseState {
     }
 
     /// Computes the new state root from the HashedPostState.
-    fn calculate_state_root(
-        &mut self,
-        state: HashedPostState,
-    ) -> Result<B256, StatelessValidationError> {
+    pub fn calculate_state_root(&mut self, state: HashedPostState) -> B256 {
         let mut removed_accounts = Vec::new();
         for (hashed_address, account) in state.accounts {
             // nonexisting accounts must be removed from the state
@@ -242,6 +237,6 @@ impl StatelessTrie for SparseState {
             .iter()
             .for_each(|hashed_address| self.remove_account(hashed_address));
 
-        Ok(self.state.hash())
+        self.state.hash()
     }
 }
