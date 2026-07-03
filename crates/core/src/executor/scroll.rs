@@ -51,7 +51,6 @@ impl EvmExecutor<'_> {
         let mut db = State::builder()
             .with_database(self.db)
             .with_bundle_update()
-            .without_state_clear()
             .build();
 
         let evm = provider
@@ -59,7 +58,7 @@ impl EvmExecutor<'_> {
             .expect("infallible");
         let ctx = provider.context_for_block(self.block).expect("infallible");
         let executor =
-            ScrollBlockExecutor::new(evm, ctx, factory.spec(), factory.receipt_builder());
+            ScrollBlockExecutor::new(evm, ctx, factory.spec().clone(), factory.receipt_builder());
 
         let result = cycle_track!(
             match self.compression_infos {

@@ -4,7 +4,7 @@
 //! under Apache License 2.0
 
 use alloy_trie::{EMPTY_ROOT_HASH, TrieAccount};
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
+use reth_stateless::{ExecutionWitness, StatelessTrie, validation::StatelessValidationError};
 pub use reth_trie::{HashedPostState, KeccakKeyHasher};
 use risc0_ethereum_trie::CachedTrie;
 use sbv_primitives::{
@@ -14,7 +14,7 @@ use sbv_primitives::{
         map::{B256Map, hash_map::Entry},
     },
     keccak256,
-    types::{reth::evm::execute::ProviderError, revm::Bytecode, rpc::ExecutionWitness},
+    types::{reth::evm::execute::ProviderError, revm::Bytecode},
 };
 use std::{cell::RefCell, marker::PhantomData};
 
@@ -107,18 +107,21 @@ impl SparseState {
     }
 
     /// Rebuild the cached storage trie for an account from the account's current storage root.
-    pub fn refresh_storage_trie(&self, address: Address) -> Result<(), ProviderError> {
+    pub fn refresh_storage_trie(
+        &self,
+        address: Address,
+    ) -> Result<Option<TrieAccount>, ProviderError> {
         let hashed_address = keccak256(address);
         let Some(account) = self.state.get(hashed_address)? else {
             self.storages.borrow_mut().remove(&hashed_address);
-            return Ok(());
+            return Ok(None);
         };
 
         self.storages.borrow_mut().insert(
             hashed_address,
             RlpTrie::from_prehashed(account.storage_root, &self.rlp_by_digest)?,
         );
-        Ok(())
+        Ok(Some(account))
     }
 }
 

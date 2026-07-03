@@ -15,7 +15,7 @@ pub const L2_MESSAGE_QUEUE: Address =
 /// Storage slot of messageRoot in L2MessageQueue.
 pub const WITHDRAW_TRIE_ROOT_SLOT: U256 = U256::ZERO;
 /// Storage slot of nextMessageIndex in L2MessageQueue (inherited from AppendOnlyMerkleTree).
-pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
+pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::ONE;
 
 /// State commit mode for the block witness verification process.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -69,17 +69,14 @@ pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), 
 }
 
 fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
-    // Verify the L2MessageQueue contract exists in the post-execution state.
-    // This also makes the account's current `storage_root` available for the refresh below.
-    let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
+    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
+    // for the block's final queue state, even if execution touched other queue slots first.
+    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::NotFound,
             format!("L2MessageQueue contract not found at {L2_MESSAGE_QUEUE}"),
         ))
     })?;
-    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
-    // for the block's final queue state, even if execution touched other queue slots first.
-    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
     Ok(())
 }
 

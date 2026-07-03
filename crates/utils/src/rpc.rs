@@ -100,16 +100,14 @@ pub trait ProviderExt: Provider<Network> {
 impl<P: Provider<Network>> ProviderExt for P {}
 
 #[cfg(feature = "scroll")]
-fn extend_execution_witness_state<I>(execution_witness: &mut ExecutionWitness, nodes: I)
+fn extend_execution_witness_state<I>(
+    execution_witness: &mut ExecutionWitness,
+    seen: &mut HashSet<B256>,
+    nodes: I,
+)
 where
     I: IntoIterator<Item = Bytes>,
 {
-    let mut seen = execution_witness
-        .state
-        .iter()
-        .map(keccak256)
-        .collect::<HashSet<_>>();
-
     for node in nodes {
         if seen.insert(keccak256(&node)) {
             execution_witness.state.push(node);
@@ -123,6 +121,8 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     number: BlockNumber,
     execution_witness: &mut ExecutionWitness,
 ) -> TransportResult<()> {
+    use std::future::IntoFuture;
+
     let parent_number = number
         .checked_sub(1)
         .expect("dump_block_witness rejects genesis blocks");
@@ -131,16 +131,29 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
         B256::from(NEXT_MESSAGE_INDEX_SLOT),
     ];
 
-    for proof_block in [parent_number, number] {
-        let proof = provider
-            .get_proof(L2_MESSAGE_QUEUE, storage_keys.clone())
-            // The witness executes from the parent root, but post-execution queue reads can still
-            // require nodes from the block's final queue state if the contract was modified.
-            .block_id(proof_block.into())
-            .await?;
+    let parent_proof = provider
+        .get_proof(L2_MESSAGE_QUEUE, storage_keys.clone())
+        .block_id(parent_number.into())
+        .into_future();
+    let current_proof = provider
+        .get_proof(L2_MESSAGE_QUEUE, storage_keys)
+        .block_id(number.into())
+        .into_future();
+    let (parent_proof, current_proof) = futures::try_join!(parent_proof, current_proof)?;
 
+    let mut seen = execution_witness
+        .state
+        .iter()
+        .map(keccak256)
+        .collect::<HashSet<_>>();
+
+    // The witness executes from the parent root, but post-execution queue reads can still require
+    // nodes from the block's final queue state if the contract was modified. Preserve parent-first
+    // append order while fetching both independent proofs concurrently.
+    for proof in [parent_proof, current_proof] {
         extend_execution_witness_state(
             execution_witness,
+            &mut seen,
             proof.account_proof.into_iter().chain(
                 proof
                     .storage_proof
@@ -335,11 +348,18 @@ mod tests {
             state: vec![existing.clone()],
             ..Default::default()
         };
+        let mut seen = execution_witness
+            .state
+            .iter()
+            .map(keccak256)
+            .collect::<HashSet<_>>();
 
         extend_execution_witness_state(
             &mut execution_witness,
+            &mut seen,
             vec![existing.clone(), inserted.clone(), inserted_again],
         );
+        extend_execution_witness_state(&mut execution_witness, &mut seen, vec![inserted.clone()]);
 
         assert_eq!(execution_witness.state, vec![existing, inserted]);
     }

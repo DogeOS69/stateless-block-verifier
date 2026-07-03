@@ -224,6 +224,17 @@ pub struct BlockHeader {
         ))
     )]
     pub requests_hash: Option<B256>,
+    /// The block access list hash, if present.
+    #[serde(default)]
+    #[cfg_attr(feature = "rkyv", rkyv(attr(doc = "The block access list hash, if present.")))]
+    pub block_access_list_hash: Option<B256>,
+    /// The consensus-layer slot number, if present.
+    #[serde(default, with = "alloy_serde::quantity::opt")]
+    #[cfg_attr(
+        feature = "rkyv",
+        rkyv(attr(doc = "The consensus-layer slot number, if present."))
+    )]
+    pub slot_number: Option<u64>,
 }
 
 impl From<crate::types::Header> for BlockHeader {
@@ -250,6 +261,8 @@ impl From<crate::types::Header> for BlockHeader {
             excess_blob_gas: header.excess_blob_gas,
             parent_beacon_block_root: header.parent_beacon_block_root,
             requests_hash: header.requests_hash,
+            block_access_list_hash: header.block_access_list_hash,
+            slot_number: header.slot_number,
         }
     }
 }
@@ -278,6 +291,8 @@ impl From<BlockHeader> for crate::types::Header {
             excess_blob_gas: header.excess_blob_gas,
             parent_beacon_block_root: header.parent_beacon_block_root,
             requests_hash: header.requests_hash,
+            block_access_list_hash: header.block_access_list_hash,
+            slot_number: header.slot_number,
         }
     }
 }
