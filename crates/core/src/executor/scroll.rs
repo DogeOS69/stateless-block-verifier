@@ -59,7 +59,7 @@ impl EvmExecutor<'_> {
             .expect("infallible");
         let ctx = provider.context_for_block(self.block).expect("infallible");
         let executor =
-            ScrollBlockExecutor::new(evm, ctx, factory.spec(), factory.receipt_builder());
+            ScrollBlockExecutor::new(evm, ctx, factory.spec().clone(), factory.receipt_builder());
 
         let result = cycle_track!(
             match self.compression_infos {
