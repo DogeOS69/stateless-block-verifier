@@ -1,8 +1,8 @@
 use crate::{
     BlockWitness,
+    error::StatelessValidationError,
     verifier::{VerifyResult, run},
 };
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
 use sbv_primitives::{
     Address, B256, U256, chainspec::ChainSpec, types::reth::evm::execute::ProviderError,
 };
