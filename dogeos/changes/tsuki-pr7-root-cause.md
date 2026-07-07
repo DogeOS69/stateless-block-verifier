@@ -156,9 +156,30 @@ question, not merely a Scroll-history replay policy question, unless an explicit
 TSUKI fixture/policy decision proves the lower gas accounting is the intended
 DogeOS semantics.
 
-## Decision Needed
+## Resolution
 
-This falls on the semantic side of the handoff decision fork. Do not apply a
-crate-code or dependency fix until the planner/human approves the pin cascade
-impact. A fixture-only workaround would be possible only by weakening or
-redefining this test coverage, not by refreshing the same canonical fixtures.
+The human approved the semantic fix and downstream cascade. The execution fix is
+implemented locally in `dogeos-revm` branch `fix/tsuki-spec-gas-table` at
+`0aba70f` (`fix: apply spec gas changes to Scroll instruction table`). The fix
+builds the Scroll instruction table from `instruction_table_gas_changes_spec()`
+for the active `ScrollSpecId`, then reapplies Scroll's custom opcode handlers.
+The full-table audit test asserts that the only static-gas difference from the
+Ethereum spec table is Scroll's documented `SELFDESTRUCT` override.
+
+PR link: pending. No push or PR has been created yet because the handoff requires
+a planner checkpoint before publishing the `dogeos-revm` branch.
+
+Validation with a temporary SBV `[patch]` to the local `dogeos-revm` fix:
+
+- Before fix, `cargo test --workspace --features scroll,scroll-all` failed in
+  `sbv-core` with `10 passed; 36 failed`, all `PostStateRootMismatch`.
+- After fix, `cargo test --workspace --features scroll,scroll-all` passed:
+  `sbv-core` `46 passed; 0 failed`, including the next-message-index fixture and
+  all 36 previously failing fixtures. The workspace also ran `sbv-primitives`
+  `1 passed` and `sbv-utils` `1 passed`.
+- After fix, `cargo test --workspace --features ethereum-all` still passed:
+  `sbv-core` `1 passed; 0 failed`.
+
+The SBV dependency pin bump is intentionally not committed yet. It should wait
+until the `dogeos-revm` fix is merged or a follow-up tag is created so the rev is
+permanently reachable.
