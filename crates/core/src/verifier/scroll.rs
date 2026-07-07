@@ -59,28 +59,23 @@ fn next_message_index_from_value(next_message_index: U256) -> Result<u64, Provid
 /// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
 /// chain.
 pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
-    ensure_l2_message_queue_account(state)?;
-    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
-    Ok((
-        withdraw_root.into(),
-        next_message_index_from_value(next_message_index)?,
-    ))
-}
-
-fn ensure_l2_message_queue_account(state: &SparseState) -> Result<(), ProviderError> {
-    // Verify the L2MessageQueue contract exists in the post-execution state.
-    // This also makes the account's current `storage_root` available for the refresh below.
+    // Storage access MUST load the account first; `SparseState::storage` reads the cached
+    // storage trie populated by `SparseState::account`.
     let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
             io::ErrorKind::NotFound,
             format!("L2MessageQueue contract not found at {L2_MESSAGE_QUEUE}"),
         ))
     })?;
-    // Rebuild from the current storage root so post-execution reads can use proof nodes appended
-    // for the block's final queue state, even if execution touched other queue slots first.
-    state.refresh_storage_trie(L2_MESSAGE_QUEUE)?;
-    Ok(())
+    // `run` calls `SparseState::calculate_state_root` for every executed block before
+    // this read. That method applies `HashedPostState` storage writes to the cached
+    // storage tries in place, so L2MessageQueue storage is already final-state here.
+    let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
+    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
+    Ok((
+        withdraw_root.into(),
+        next_message_index_from_value(next_message_index)?,
+    ))
 }
 
 #[cfg(test)]

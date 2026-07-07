@@ -104,21 +104,6 @@ impl SparseState {
 
         Ok(trie)
     }
-
-    /// Rebuild the cached storage trie for an account from the account's current storage root.
-    pub fn refresh_storage_trie(&self, address: Address) -> Result<(), ProviderError> {
-        let hashed_address = keccak256(address);
-        let Some(account) = self.state.get(hashed_address)? else {
-            self.storages.borrow_mut().remove(&hashed_address);
-            return Ok(());
-        };
-
-        self.storages.borrow_mut().insert(
-            hashed_address,
-            RlpTrie::from_prehashed(account.storage_root, &self.rlp_by_digest)?,
-        );
-        Ok(())
-    }
 }
 
 impl SparseState {
