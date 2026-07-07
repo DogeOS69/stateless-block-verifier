@@ -34,8 +34,9 @@ elidable-lifetime-names = "warn"
 uninlined-format-args = "warn"
 unnecessary-box-returns = "warn"
 unnecessary-debug-formatting = "warn"
-# this is useful if we forget to align versions of alloy/revm when upgrading reth
-multiple-crate-versions = "warn"
+# The Tsuki dependency lane intentionally carries duplicate alloy/revm versions while dogeos-reth
+# is pinned to its upstream stack.
+multiple-crate-versions = "allow"
 
 [workspace.dependencies]
 # https://github.com/alloy-rs/alloy
