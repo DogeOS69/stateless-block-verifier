@@ -143,6 +143,9 @@ pub fn build_chain_spec_force_hardfork(
     if hardfork >= Hardfork::GalileoV2 {
         hardforks.insert(Hardfork::GalileoV2, ForkCondition::Timestamp(0));
     }
+    if hardfork >= Hardfork::Tsuki {
+        hardforks.insert(Hardfork::Tsuki, ForkCondition::Timestamp(0));
+    }
     sbv_helpers::dev_info!(
         "Building chain spec for chain {} with hardfork {:?}",
         chain,
@@ -267,5 +270,17 @@ mod tests {
         assert_eq!(chain_spec.chain, Chain::from_id(42424242));
         assert!(!chain_spec.is_fork_active_at_block(Hardfork::DarwinV2, 0));
         assert!(chain_spec.is_fork_active_at_block(Hardfork::DarwinV2, 10));
+    }
+
+    #[cfg(feature = "scroll-chainspec")]
+    #[test]
+    fn force_tsuki_chain_spec_activates_tsuki() {
+        use super::*;
+        use crate::hardforks::Hardfork;
+
+        let chain_spec = build_chain_spec_force_hardfork(Chain::from_id(42424242), Hardfork::Tsuki);
+
+        assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::GalileoV2, 0));
+        assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
     }
 }

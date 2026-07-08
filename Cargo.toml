@@ -58,26 +58,26 @@ alloy-primitives = { version = "1.4.1", default-features = false, features = ["m
 # https://github.com/alloy-rs/evm
 alloy-evm = { version = "=0.27.2", default-features = false }
 
-revm-scroll = { git = "https://github.com/DogeOS69/dogeos-revm", tag = "tsuki-v0.4", default-features = false }
+revm-scroll = { git = "https://github.com/DogeOS69/dogeos-revm", tag = "tsuki-v0.7", default-features = false }
 
-reth-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-evm-ethereum = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-ethereum-forks = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-execution-types = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-primitives-traits = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-trie = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
+reth-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-evm-ethereum = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-ethereum-forks = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-execution-types = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-primitives-traits = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-trie = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
 
-reth-scroll-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-scroll-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-scroll-forks = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-reth-scroll-primitives = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
+reth-scroll-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-scroll-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-scroll-forks = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+reth-scroll-primitives = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
 
-scroll-alloy-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-scroll-alloy-consensus = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-scroll-alloy-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
-scroll-alloy-network = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a80d552", default-features = false }
+scroll-alloy-evm = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+scroll-alloy-consensus = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+scroll-alloy-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
+scroll-alloy-network = { git = "https://github.com/DogeOS69/dogeos-reth", rev = "a4c08945f153a7fc7bd079350d933ccd59ab2b07", default-features = false }
 
 risc0-ethereum-trie = { git = "https://github.com/risc0/risc0-ethereum" }
 

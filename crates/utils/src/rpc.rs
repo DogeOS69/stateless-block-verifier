@@ -117,6 +117,23 @@ where
     }
 }
 
+/// Scroll's eth_getProof response uses non-standard account fields (poseidonCodeHash,
+/// keccakCodeHash, codeSize instead of codeHash), so we deserialize only the proof
+/// nodes we actually need.
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollProofResponse {
+    account_proof: Vec<Bytes>,
+    storage_proof: Vec<ScrollStorageProof>,
+}
+
+#[cfg(feature = "scroll")]
+#[derive(Debug, Deserialize)]
+struct ScrollStorageProof {
+    proof: Vec<Bytes>,
+}
+
 #[cfg(feature = "scroll")]
 async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     provider: &P,
@@ -132,11 +149,16 @@ async fn append_l2_message_queue_proofs<P: Provider<Network>>(
     ];
 
     for proof_block in [parent_number, number] {
-        let proof = provider
-            .get_proof(L2_MESSAGE_QUEUE, storage_keys.clone())
-            // The witness executes from the parent root, but post-execution queue reads can still
-            // require nodes from the block's final queue state if the contract was modified.
-            .block_id(proof_block.into())
+        let proof: ScrollProofResponse = provider
+            .client()
+            .request(
+                "eth_getProof",
+                (
+                    L2_MESSAGE_QUEUE,
+                    &storage_keys,
+                    BlockNumberOrTag::Number(proof_block),
+                ),
+            )
             .await?;
 
         extend_execution_witness_state(
@@ -342,5 +364,34 @@ mod tests {
         );
 
         assert_eq!(execution_witness.state, vec![existing, inserted]);
+    }
+
+    #[test]
+    fn scroll_proof_response_accepts_l2geth_shape() {
+        let response = serde_json::json!({
+            "address": "0x5300000000000000000000000000000000000001",
+            "balance": "0x0",
+            "codeSize": "0x0",
+            "keccakCodeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+            "nonce": "0x0",
+            "poseidonCodeHash": "0x00",
+            "storageHash": "0x00",
+            "accountProof": ["0xf8"],
+            "storageProof": [
+                {
+                    "key": "0x00",
+                    "proof": ["0xf9"],
+                    "value": "0x0"
+                }
+            ]
+        });
+
+        let proof: ScrollProofResponse = serde_json::from_value(response).unwrap();
+
+        assert_eq!(proof.account_proof, vec![Bytes::from_static(&[0xf8])]);
+        assert_eq!(
+            proof.storage_proof[0].proof,
+            vec![Bytes::from_static(&[0xf9])]
+        );
     }
 }
