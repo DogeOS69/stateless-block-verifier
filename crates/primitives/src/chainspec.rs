@@ -83,7 +83,7 @@ pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
 ) -> Arc<ChainSpec> {
-    use crate::hardforks::Hardfork;
+    use crate::{Address, hardforks::Hardfork};
     use reth_scroll_chainspec::{ScrollChainConfig, ScrollChainSpec};
     use std::sync::{Arc, LazyLock};
 
@@ -152,13 +152,18 @@ pub fn build_chain_spec_force_hardfork(
         hardforks
     );
 
+    let mut config = ScrollChainConfig::mainnet();
+    if hardfork >= Hardfork::Tsuki {
+        config.allowed_transfer_precompile_caller = Some(Address::ZERO);
+    }
+
     Arc::new(ScrollChainSpec {
         inner: reth_chainspec::ChainSpec {
             chain,
             hardforks,
             ..Default::default()
         },
-        config: ScrollChainConfig::mainnet(),
+        config,
     })
 }
 
@@ -276,11 +281,15 @@ mod tests {
     #[test]
     fn force_tsuki_chain_spec_activates_tsuki() {
         use super::*;
-        use crate::hardforks::Hardfork;
+        use crate::{Address, hardforks::Hardfork};
 
         let chain_spec = build_chain_spec_force_hardfork(Chain::from_id(42424242), Hardfork::Tsuki);
 
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::GalileoV2, 0));
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
+        assert_eq!(
+            chain_spec.config.allowed_transfer_precompile_caller,
+            Some(Address::ZERO)
+        );
     }
 }
