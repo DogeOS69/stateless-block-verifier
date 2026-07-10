@@ -5,7 +5,7 @@ pub use reth_chainspec::{self, *};
 #[cfg(feature = "scroll-chainspec")]
 pub use reth_scroll_chainspec as scroll;
 #[cfg(feature = "scroll-chainspec")]
-pub use reth_scroll_chainspec::{SCROLL_DEV, SCROLL_MAINNET, SCROLL_SEPOLIA};
+pub use reth_scroll_chainspec::{SCROLL_DEV, SCROLL_MAINNET, SCROLL_SEPOLIA, DOGEOS_MAINNET, DOGEOS_CHIKYU};
 
 /// An Ethereum chain specification.
 ///
@@ -41,6 +41,10 @@ pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
 /// Get chain spec
 #[cfg(feature = "scroll-chainspec")]
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
+    if chain == Chain::from_id(6281971) {
+        return Some(DOGEOS_CHIKYU.clone());
+    }
+    // FIXME: DogeOS mainnet
     if chain == Chain::from_named(NamedChain::Scroll) {
         return Some(SCROLL_MAINNET.clone());
     }
@@ -83,7 +87,7 @@ pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
 ) -> Arc<ChainSpec> {
-    use crate::{Address, hardforks::Hardfork};
+    use crate::hardforks::Hardfork;
     use reth_scroll_chainspec::{ScrollChainConfig, ScrollChainSpec};
     use std::sync::{Arc, LazyLock};
 
@@ -152,18 +156,13 @@ pub fn build_chain_spec_force_hardfork(
         hardforks
     );
 
-    let mut config = ScrollChainConfig::mainnet();
-    if hardfork >= Hardfork::Tsuki {
-        config.allowed_transfer_precompile_caller = Some(Address::ZERO);
-    }
-
     Arc::new(ScrollChainSpec {
         inner: reth_chainspec::ChainSpec {
             chain,
             hardforks,
             ..Default::default()
         },
-        config,
+        config: ScrollChainConfig::mainnet()
     })
 }
 
@@ -281,15 +280,11 @@ mod tests {
     #[test]
     fn force_tsuki_chain_spec_activates_tsuki() {
         use super::*;
-        use crate::{Address, hardforks::Hardfork};
+        use crate::hardforks::Hardfork;
 
         let chain_spec = build_chain_spec_force_hardfork(Chain::from_id(42424242), Hardfork::Tsuki);
 
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::GalileoV2, 0));
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
-        assert_eq!(
-            chain_spec.config.allowed_transfer_precompile_caller,
-            Some(Address::ZERO)
-        );
     }
 }
