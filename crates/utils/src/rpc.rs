@@ -3,11 +3,7 @@
 use crate::witness::WitnessBuilder;
 use alloy_provider::Provider;
 use alloy_transport::TransportResult;
-#[cfg(feature = "scroll")]
-use sbv_core::verifier::{L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT, WITHDRAW_TRIE_ROOT_SLOT};
 use sbv_core::witness::BlockWitness;
-#[cfg(feature = "scroll")]
-use sbv_primitives::keccak256;
 use sbv_primitives::{
     B256, BlockNumber, Bytes, ChainId,
     alloy_primitives::map::B256HashMap,
@@ -18,8 +14,6 @@ use sbv_primitives::{
     },
 };
 use serde::Deserialize;
-#[cfg(feature = "scroll")]
-use std::collections::HashSet;
 
 /// Extension trait for [`Provider`](Provider).
 #[async_trait::async_trait]
@@ -98,82 +92,6 @@ pub trait ProviderExt: Provider<Network> {
 }
 
 impl<P: Provider<Network>> ProviderExt for P {}
-
-#[cfg(feature = "scroll")]
-fn extend_execution_witness_state<I>(execution_witness: &mut ExecutionWitness, nodes: I)
-where
-    I: IntoIterator<Item = Bytes>,
-{
-    let mut seen = execution_witness
-        .state
-        .iter()
-        .map(keccak256)
-        .collect::<HashSet<_>>();
-
-    for node in nodes {
-        if seen.insert(keccak256(&node)) {
-            execution_witness.state.push(node);
-        }
-    }
-}
-
-/// Scroll's eth_getProof response uses non-standard account fields (poseidonCodeHash,
-/// keccakCodeHash, codeSize instead of codeHash), so we deserialize only the proof
-/// nodes we actually need.
-#[cfg(feature = "scroll")]
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ScrollProofResponse {
-    account_proof: Vec<Bytes>,
-    storage_proof: Vec<ScrollStorageProof>,
-}
-
-#[cfg(feature = "scroll")]
-#[derive(Debug, Deserialize)]
-struct ScrollStorageProof {
-    proof: Vec<Bytes>,
-}
-
-#[cfg(feature = "scroll")]
-async fn append_l2_message_queue_proofs<P: Provider<Network>>(
-    provider: &P,
-    number: BlockNumber,
-    execution_witness: &mut ExecutionWitness,
-) -> TransportResult<()> {
-    let parent_number = number
-        .checked_sub(1)
-        .expect("dump_block_witness rejects genesis blocks");
-    let storage_keys = vec![
-        B256::from(WITHDRAW_TRIE_ROOT_SLOT),
-        B256::from(NEXT_MESSAGE_INDEX_SLOT),
-    ];
-
-    for proof_block in [parent_number, number] {
-        let proof: ScrollProofResponse = provider
-            .client()
-            .request(
-                "eth_getProof",
-                (
-                    L2_MESSAGE_QUEUE,
-                    &storage_keys,
-                    BlockNumberOrTag::Number(proof_block),
-                ),
-            )
-            .await?;
-
-        extend_execution_witness_state(
-            execution_witness,
-            proof.account_proof.into_iter().chain(
-                proof
-                    .storage_proof
-                    .into_iter()
-                    .flat_map(|proof| proof.proof),
-            ),
-        );
-    }
-
-    Ok(())
-}
 
 /// DumpBlockWitness created via [`ProviderExt::dump_block_witness`].
 #[must_use = "DumpBlockWitness does not execute until you call `send`"]
@@ -319,16 +237,6 @@ impl<'a, P: ProviderExt> DumpBlockWitness<'a, P> {
             self.builder = self.builder.execution_witness(execution_witness);
         }
 
-        #[cfg(feature = "scroll")]
-        {
-            let mut execution_witness = self.builder.execution_witness.take().expect(
-                "execution_witness must be populated before appending L2 message queue proofs",
-            );
-            append_l2_message_queue_proofs(self.provider, self.number, &mut execution_witness)
-                .await?;
-            self.builder = self.builder.execution_witness(execution_witness);
-        }
-
         #[cfg(not(feature = "scroll"))]
         if self.builder.blocks_hash.is_none() {
             let ancestors = self
@@ -341,57 +249,5 @@ impl<'a, P: ProviderExt> DumpBlockWitness<'a, P> {
         }
 
         Ok(Some(self.builder.build().unwrap()))
-    }
-}
-
-#[cfg(all(test, feature = "scroll"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extend_execution_witness_state_dedups_nodes() {
-        let existing = Bytes::from_static(b"existing");
-        let inserted = Bytes::from_static(b"inserted");
-        let inserted_again = inserted.clone();
-        let mut execution_witness = ExecutionWitness {
-            state: vec![existing.clone()],
-            ..Default::default()
-        };
-
-        extend_execution_witness_state(
-            &mut execution_witness,
-            vec![existing.clone(), inserted.clone(), inserted_again],
-        );
-
-        assert_eq!(execution_witness.state, vec![existing, inserted]);
-    }
-
-    #[test]
-    fn scroll_proof_response_accepts_l2geth_shape() {
-        let response = serde_json::json!({
-            "address": "0x5300000000000000000000000000000000000001",
-            "balance": "0x0",
-            "codeSize": "0x0",
-            "keccakCodeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "nonce": "0x0",
-            "poseidonCodeHash": "0x00",
-            "storageHash": "0x00",
-            "accountProof": ["0xf8"],
-            "storageProof": [
-                {
-                    "key": "0x00",
-                    "proof": ["0xf9"],
-                    "value": "0x0"
-                }
-            ]
-        });
-
-        let proof: ScrollProofResponse = serde_json::from_value(response).unwrap();
-
-        assert_eq!(proof.account_proof, vec![Bytes::from_static(&[0xf8])]);
-        assert_eq!(
-            proof.storage_proof[0].proof,
-            vec![Bytes::from_static(&[0xf9])]
-        );
     }
 }
