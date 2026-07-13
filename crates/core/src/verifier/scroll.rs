@@ -3,8 +3,15 @@ use crate::{
     error::StatelessValidationError,
     verifier::{VerifyResult, run},
 };
+use reth_primitives_traits::RecoveredBlock;
 use sbv_primitives::{
-    Address, B256, U256, chainspec::ChainSpec, types::reth::evm::execute::ProviderError,
+    Address, B256, U256,
+    chainspec::ChainSpec,
+    hardforks::ScrollHardforks,
+    types::{
+        consensus::BlockHeader,
+        reth::{evm::execute::ProviderError, primitives::Block},
+    },
 };
 use sbv_trie::SparseState;
 use std::{io, sync::Arc};
@@ -49,7 +56,11 @@ pub fn run_host(
 ///
 /// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
 /// chain.
-pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
+pub(super) fn l2_message_queue_info(
+    chain_spec: &ChainSpec,
+    block: &RecoveredBlock<Block>,
+    state: &SparseState,
+) -> Result<(B256, u64), ProviderError> {
     // storage access **MUST** load account first, see: [`SparseState::storage`]
     let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
@@ -58,8 +69,33 @@ pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), 
         ))
     })?;
     let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
-    Ok((withdraw_root.into(), next_message_index.to()))
+
+    // The `nextMessageIndex` slot proof is only guaranteed to be part of the committed witness once
+    // the Tsuki hardfork is active. Before Tsuki it is not guaranteed and may be absent, so reading
+    // it could fail; we return the sentinel `0` instead. NOTE: `0` here is a sentinel, not
+    // necessarily the real on-chain `nextMessageIndex` for a pre-Tsuki block. See
+    // `dogeos/changes/next-message-index.md`.
+    let next_message_index: u64 = if chain_spec.is_tsuki_active_at_timestamp(block.timestamp()) {
+        next_message_index_from_value(state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?)?
+    } else {
+        0
+    };
+    Ok((withdraw_root.into(), next_message_index))
+}
+
+/// Converts a raw `nextMessageIndex` storage value into a `u64`, returning an error instead of
+/// panicking when the value does not fit.
+///
+/// Scroll's `L2MessageQueue.nextMessageIndex` is a monotonic counter that fits comfortably in a
+/// `u64`, but the witness data is untrusted, so an out-of-range value must surface as an error
+/// rather than aborting the verifier via a panicking `U256::to()`.
+fn next_message_index_from_value(next_message_index: U256) -> Result<u64, ProviderError> {
+    u64::try_from(next_message_index).map_err(|_| {
+        ProviderError::other(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("nextMessageIndex does not fit into u64: {next_message_index}"),
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -95,8 +131,20 @@ mod tests {
         run_host(&[witness], chain_spec).unwrap();
     }
 
+    /// Pre-Tsuki sentinel behavior.
+    ///
+    /// `20240125.json` is a real Scroll **mainnet** block (chain `534352`) whose spec never
+    /// activates Tsuki, so [`l2_message_queue_info`] returns the sentinel `0` regardless of the
+    /// real on-chain `nextMessageIndex` (which is `208530` for this block — see the fixture
+    /// README). This is exactly the "don't break witness before Tsuki" behavior.
+    ///
+    /// This test is also what keeps the Tsuki gate load-bearing *by value*: the fixture does
+    /// contain the slot-1 proof, so if the gate were removed the read would yield `208530` and the
+    /// `== 0` assertion below would fail. See
+    /// `test_next_message_index_pre_tsuki_missing_slot1_proof_is_sentinel` for the complementary
+    /// "gate prevents a missing-proof error" guard.
     #[test]
-    fn test_next_message_index_feynman_fixture() {
+    fn test_next_message_index_pre_tsuki_sentinel() {
         let witness: BlockWitness = serde_json::from_str(include_str!(
             "../../../../testdata/dogeos/next-message-index/20240125.json"
         ))
@@ -105,6 +153,44 @@ mod tests {
 
         let result = run_host(&[witness], chain_spec).unwrap();
 
-        assert_eq!(result.next_message_index, 208530);
+        // Sentinel: Scroll mainnet is pre-Tsuki, so the index is not extracted. The real on-chain
+        // value for this block is 208530. Post-Tsuki extraction assertion is tracked as a
+        // pre-release follow-up (needs a genuine Tsuki-active DogeOS fixture); see
+        // `dogeos/changes/next-message-index.md`.
+        assert_eq!(result.next_message_index, 0);
+    }
+
+    #[test]
+    fn test_next_message_index_overflow() {
+        let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
+            .expect_err("values above u64::MAX must be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("nextMessageIndex does not fit into u64")
+        );
+    }
+
+    /// Load-bearing guard for the pre-Tsuki gate.
+    ///
+    /// `14919991-missing-slot1-proof.json` is a real Scroll mainnet EuclidV2 block dumped **before**
+    /// the `L2MessageQueue` queue-proof backfill (`da8892b^`): its witness carries the slot-0
+    /// `messageRoot` proof but **not** the slot-1 `nextMessageIndex` proof. Pre-Tsuki,
+    /// [`l2_message_queue_info`] must not read slot 1, so verification succeeds and yields the
+    /// sentinel `0`. If the Tsuki gate were removed, the unconditional slot-1 read would hit the
+    /// absent proof node and panic with `MPT: Unresolved node access` — reproducing the exact
+    /// regression this PR fixes.
+    #[test]
+    fn test_next_message_index_pre_tsuki_missing_slot1_proof_is_sentinel() {
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/14919991-missing-slot1-proof.json"
+        ))
+        .unwrap();
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::EuclidV2);
+
+        let result = run_host(&[witness], chain_spec).unwrap();
+
+        assert_eq!(result.next_message_index, 0);
     }
 }

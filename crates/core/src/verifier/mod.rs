@@ -39,6 +39,11 @@ pub struct VerifyResult {
     #[cfg(feature = "scroll")]
     pub withdraw_root: B256,
     /// Next L2-to-L1 message index from Scroll's L2MessageQueue after executing the witnesses.
+    ///
+    /// Only extracted once the Tsuki hardfork is active. Before Tsuki the `nextMessageIndex`
+    /// storage proof is not guaranteed to be part of the witness (and may be absent), so this is
+    /// the sentinel `0` — **not** the real on-chain value. Consumers that fold this into proof
+    /// public inputs must not treat a pre-Tsuki `0` as authoritative. See `l2_message_queue_info`.
     #[cfg(feature = "scroll")]
     pub next_message_index: u64,
 }
@@ -140,7 +145,12 @@ pub fn run(
     }
 
     #[cfg(feature = "scroll")]
-    let (withdraw_root, next_message_index) = l2_message_queue_info(&trie).map_err(|e| {
+    let (withdraw_root, next_message_index) = l2_message_queue_info(
+        &chain_spec,
+        blocks.last().as_ref().expect("witnesses can not be empty"),
+        &trie,
+    )
+    .map_err(|e| {
         StatelessValidationError::StatelessExecutionFailed(format!(
             "failed to get L2 message queue info: {e}"
         ))

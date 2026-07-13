@@ -2,6 +2,15 @@
 
 `20240125.json` is a Scroll mainnet block witness for block `20240125`.
 
+`14919991-missing-slot1-proof.json` is a companion **regression** fixture: a real
+Scroll mainnet EuclidV2 block witness taken from before the `L2MessageQueue`
+queue-proof backfill (`git show da8892b^:testdata/scroll/euclidv2/14919991.json`),
+so it contains the slot-0 `messageRoot` proof but **not** the slot-1
+`nextMessageIndex` proof. It exercises the pre-Tsuki gate: verification must
+succeed and return the sentinel `0` without reading slot 1. If the Tsuki gate is
+removed, the unconditional slot-1 read panics with `MPT: Unresolved node access`.
+Do not backfill this fixture — its missing slot-1 proof is the point.
+
 Why this block:
 
 - upstream `sbv-cli run` replays it successfully
