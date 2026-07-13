@@ -44,6 +44,7 @@ rkyv = ["dep:rkyv", "sbv-primitives/rkyv"]
 
 scroll = [
   "sbv-primitives/scroll-chainspec",
+  "sbv-primitives/scroll-evm-types",
   "sbv-primitives/scroll-reth-evm-types",
 ]
 scroll-compress-info = ["sbv-primitives/scroll-compress-info"]

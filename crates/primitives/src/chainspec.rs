@@ -5,7 +5,9 @@ pub use reth_chainspec::{self, *};
 #[cfg(feature = "scroll-chainspec")]
 pub use reth_scroll_chainspec as scroll;
 #[cfg(feature = "scroll-chainspec")]
-pub use reth_scroll_chainspec::{SCROLL_DEV, SCROLL_MAINNET, SCROLL_SEPOLIA, DOGEOS_MAINNET, DOGEOS_CHIKYU};
+pub use reth_scroll_chainspec::{
+    DOGEOS_CHIKYU, DOGEOS_MAINNET, SCROLL_DEV, SCROLL_MAINNET, SCROLL_SEPOLIA,
+};
 
 /// An Ethereum chain specification.
 ///
@@ -162,7 +164,7 @@ pub fn build_chain_spec_force_hardfork(
             hardforks,
             ..Default::default()
         },
-        config: ScrollChainConfig::mainnet()
+        config: ScrollChainConfig::mainnet(),
     })
 }
 

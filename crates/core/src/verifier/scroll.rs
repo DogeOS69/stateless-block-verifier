@@ -3,8 +3,15 @@ use crate::{
     error::StatelessValidationError,
     verifier::{VerifyResult, run},
 };
+use reth_primitives_traits::RecoveredBlock;
 use sbv_primitives::{
-    Address, B256, U256, chainspec::ChainSpec, types::reth::evm::execute::ProviderError,
+    Address, B256, U256,
+    chainspec::ChainSpec,
+    hardforks::ScrollHardforks,
+    types::{
+        consensus::BlockHeader,
+        reth::{evm::execute::ProviderError, primitives::Block},
+    },
 };
 use sbv_trie::SparseState;
 use std::{io, sync::Arc};
@@ -49,7 +56,11 @@ pub fn run_host(
 ///
 /// Note: `withdraw_root` here should not be confused with the withdrawal root of the beacon
 /// chain.
-pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), ProviderError> {
+pub(super) fn l2_message_queue_info(
+    chain_spec: &ChainSpec,
+    block: &RecoveredBlock<Block>,
+    state: &SparseState,
+) -> Result<(B256, u64), ProviderError> {
     // storage access **MUST** load account first, see: [`SparseState::storage`]
     let _account = state.account(L2_MESSAGE_QUEUE)?.ok_or_else(|| {
         ProviderError::other(io::Error::new(
@@ -58,8 +69,16 @@ pub(super) fn l2_message_queue_info(state: &SparseState) -> Result<(B256, u64), 
         ))
     })?;
     let withdraw_root = state.storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)?;
-    let next_message_index = state.storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?;
-    Ok((withdraw_root.into(), next_message_index.to()))
+
+    // Witness is not included before the tsuki hardfork, in which case the next message index is always 0.
+    let next_message_index: u64 = if chain_spec.is_tsuki_active_at_timestamp(block.timestamp()) {
+        state
+            .storage(L2_MESSAGE_QUEUE, NEXT_MESSAGE_INDEX_SLOT)?
+            .to()
+    } else {
+        0
+    };
+    Ok((withdraw_root.into(), next_message_index))
 }
 
 #[cfg(test)]

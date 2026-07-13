@@ -140,7 +140,12 @@ pub fn run(
     }
 
     #[cfg(feature = "scroll")]
-    let (withdraw_root, next_message_index) = l2_message_queue_info(&trie).map_err(|e| {
+    let (withdraw_root, next_message_index) = l2_message_queue_info(
+        &chain_spec,
+        blocks.last().as_ref().expect("witnesses can not be empty"),
+        &trie,
+    )
+    .map_err(|e| {
         StatelessValidationError::StatelessExecutionFailed(format!(
             "failed to get L2 message queue info: {e}"
         ))
