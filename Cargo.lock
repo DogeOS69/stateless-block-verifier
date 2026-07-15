@@ -4712,6 +4712,7 @@ dependencies = [
 name = "sbv-core"
 version = "2.0.0"
 dependencies = [
+ "alloy-rlp",
  "auto_impl",
  "ctor",
  "itertools 0.14.0",

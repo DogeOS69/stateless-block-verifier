@@ -103,8 +103,10 @@ fn next_message_index_from_value(next_message_index: U256) -> Result<u64, Provid
 mod tests {
     use super::*;
     use sbv_primitives::{
+        Bytes,
         chainspec::{Chain, build_chain_spec_force_hardfork},
         hardforks::Hardfork,
+        keccak256,
     };
 
     #[rstest::rstest]
@@ -215,6 +217,44 @@ mod tests {
         let result = run_host(&[witness], chain_spec).unwrap();
         assert_eq!(result.blocks[0].hash(), EXPECTED_BLOCK_HASH);
         assert_eq!(result.next_message_index, EXPECTED_NEXT_MESSAGE_INDEX);
+    }
+
+    #[test]
+    fn corrupt_pre_state_root_retains_root_and_typed_source() {
+        use std::error::Error;
+
+        let mut witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/6281971-19.json"
+        ))
+        .unwrap();
+        // Point the pre-state root at a witness node that is present but is not valid RLP. This
+        // exercises `SparseState::new` itself; an absent root remains an unresolved lazy trie node
+        // and only fails when it is later accessed.
+        let malformed_root_node = Bytes::from_static(&[0xff]);
+        let corrupt_root = keccak256(&malformed_root_node);
+        witness.states.push(malformed_root_node);
+        witness.prev_state_root = corrupt_root;
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
+
+        let error = run_host(&[witness], chain_spec)
+            .expect_err("an unrelated pre-state root must not be revealed by the witness");
+
+        match &error {
+            StatelessValidationError::SparseStateCreationFailed {
+                pre_state_root,
+                source,
+            } => {
+                assert_eq!(*pre_state_root, corrupt_root);
+                assert!(!source.to_string().is_empty());
+            }
+            other => panic!("expected sparse-state creation failure, got {other:?}"),
+        }
+        assert!(
+            error.source().is_some(),
+            "typed RLP source must be retained"
+        );
+        assert!(error.to_string().contains(&format!("{corrupt_root}")));
     }
 
     #[test]
