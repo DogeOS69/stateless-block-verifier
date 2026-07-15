@@ -47,14 +47,18 @@ part of `VerifyResult`.
   `MPT: Unresolved node access`, so this test keeps the gate load-bearing.
 - `test_next_message_index_overflow` asserts a slot value above `u64::MAX` is
   rejected with an error rather than panicking.
+- `testdata/dogeos/next-message-index/6281971-19.json` pins local DogeOS chain
+  block 19, where Tsuki is active through the registered Chikyū chain spec and
+  queue slot 1 changes from `0` to `1`. The full witness replays successfully
+  and `test_next_message_index_post_tsuki_transition` asserts the authenticated
+  nonzero value `1`.
 - The committed Scroll fixture sweep under `testdata/scroll/` is backfilled with
   `L2MessageQueue` proof nodes so the existing replay tests continue to work on
   the DogeOS verifier path.
 
-## Pre-release follow-up
+## Fixture provenance
 
-- Post-Tsuki extraction coverage is not yet asserted: it needs a genuine
-  Tsuki-active DogeOS block witness in which `nextMessageIndex` changes,
-  including the `NativeDogeToken` account proof (`0x5300..d09e`, touched by the
-  Tsuki migration) and the slot-1 proof. Add such a fixture, assert the real
-  extracted value, and land it before release.
+The Tsuki-active fixture came from the local DogeOS ScrollReth withdrawal-readiness
+topology because no public Chikyū Tsuki node existed at collection time. Its exact
+node/image pins, canonical roots, independent storage checks, and SHA-256 are in
+`testdata/dogeos/next-message-index/README.md`.

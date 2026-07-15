@@ -154,9 +154,8 @@ mod tests {
         let result = run_host(&[witness], chain_spec).unwrap();
 
         // Sentinel: Scroll mainnet is pre-Tsuki, so the index is not extracted. The real on-chain
-        // value for this block is 208530. Post-Tsuki extraction assertion is tracked as a
-        // pre-release follow-up (needs a genuine Tsuki-active DogeOS fixture); see
-        // `dogeos/changes/next-message-index.md`.
+        // value for this block is 208530. The genuine Tsuki-active transition and extraction are
+        // covered by `test_next_message_index_post_tsuki_transition` below.
         assert_eq!(result.next_message_index, 0);
     }
 
@@ -192,5 +191,43 @@ mod tests {
         let result = run_host(&[witness], chain_spec).unwrap();
 
         assert_eq!(result.next_message_index, 0);
+    }
+
+    /// Genuine Tsuki-active DogeOS local-node transition fixture.
+    ///
+    /// Block 19's first transaction calls `withdrawToL1(address)`, enqueueing the first L2-to-L1
+    /// withdrawal message and changing the authenticated queue slot from `0` in its parent state
+    /// to `1` in its final state. Unlike the historical Scroll fixtures, this uses the registered
+    /// Chikyū chain spec and contains the NativeDogeToken proof material required by Tsuki
+    /// execution.
+    #[test]
+    fn test_next_message_index_post_tsuki_transition() {
+        const EXPECTED_NEXT_MESSAGE_INDEX: u64 = 1;
+        const EXPECTED_BLOCK_HASH: B256 = sbv_primitives::b256!(
+            "17ce064e49dc6f59353d35487eee042140490b885e73275a69ad23982494ecbc"
+        );
+        const EXPECTED_PARENT_STATE_ROOT: B256 = sbv_primitives::b256!(
+            "80479f9622ccb9d62a40ee02a217494c17413163ab10596ba189ab6be3901c88"
+        );
+        const EXPECTED_POST_STATE_ROOT: B256 = sbv_primitives::b256!(
+            "0824e511633e44abe11ded8c271dbfcecea21263cb37fc84d1835dc379b5724d"
+        );
+
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/6281971-19.json"
+        ))
+        .unwrap();
+        assert_ne!(EXPECTED_NEXT_MESSAGE_INDEX, 0);
+        assert_eq!(witness.chain_id, 6_281_971);
+        assert_eq!(witness.header.number, 19);
+        assert_eq!(witness.prev_state_root, EXPECTED_PARENT_STATE_ROOT);
+        assert_eq!(witness.header.state_root, EXPECTED_POST_STATE_ROOT);
+
+        let chain_spec = get_chain_spec(Chain::from_id(witness.chain_id)).unwrap();
+        assert!(chain_spec.is_tsuki_active_at_timestamp(witness.header.timestamp));
+
+        let result = run_host(&[witness], chain_spec).unwrap();
+        assert_eq!(result.blocks[0].hash(), EXPECTED_BLOCK_HASH);
+        assert_eq!(result.next_message_index, EXPECTED_NEXT_MESSAGE_INDEX);
     }
 }
