@@ -17,7 +17,7 @@ rkyv = { workspace = true, optional = true }
 serde.workspace = true
 tracing = { workspace = true, optional = true }
 
-alloy-consensus.workspace = true
+alloy-consensus = { workspace = true, features = ["serde", "serde-bincode-compat"] }
 alloy-eips.workspace = true
 alloy-evm = { workspace = true, optional = true }
 alloy-network = { workspace = true, optional = true }
@@ -33,17 +33,14 @@ reth-evm = { workspace = true, optional = true }
 reth-evm-ethereum = { workspace = true, optional = true }
 reth-ethereum-forks = { workspace = true, optional = true }
 reth-execution-types = { workspace = true, optional = true }
-reth-primitives = { workspace = true, features = ["serde-bincode-compat"] }
-reth-primitives-traits = { workspace = true, features = ["serde", "serde-bincode-compat"] }
-reth-scroll-chainspec = { workspace = true, optional = true }
-reth-scroll-evm = { workspace = true, optional = true }
-reth-scroll-forks = { workspace = true, optional = true }
-reth-scroll-primitives = { workspace = true, optional = true }
-
-scroll-alloy-consensus = { workspace = true, optional = true }
-scroll-alloy-evm = { workspace = true, optional = true }
-scroll-alloy-rpc-types = { workspace = true, optional = true }
-scroll-alloy-network = { workspace = true, optional = true }
+reth-ethereum-primitives = { workspace = true, features = ["serde"] }
+reth-primitives-traits = { workspace = true, features = ["serde"] }
+dogeos-chainspec = { workspace = true, optional = true }
+dogeos-hardforks = { workspace = true, optional = true }
+dogeos-protocol-types = { workspace = true, optional = true }
+dogeos-reth-evm = { workspace = true, optional = true }
+dogeos-reth-primitives = { workspace = true, optional = true }
+dogeos-rpc-types = { workspace = true, optional = true }
 
 sbv-helpers.workspace = true
 
@@ -75,32 +72,34 @@ ethereum-all = [
 ]
 
 scroll = [
-  "dep:reth-scroll-primitives",
-  "dep:scroll-alloy-consensus",
-  "dep:scroll-alloy-rpc-types",
-  "reth-scroll-primitives/serde",
+  "dep:dogeos-reth-primitives",
+  "dep:dogeos-protocol-types",
+  "dep:dogeos-rpc-types",
+  "dogeos-protocol-types/serde",
+  "dogeos-protocol-types/serde-bincode-compat",
+  "dogeos-reth-primitives/serde",
 ]
 scroll-compress-info = [
   "scroll",
   "scroll-evm-types",
-  "dep:scroll-alloy-evm",
-  "scroll-alloy-evm/std",
-  "scroll-alloy-evm/zstd_compression"
+  "dep:dogeos-reth-evm",
+  "dogeos-reth-evm/std",
+  "dogeos-reth-evm/zstd_compression"
 ]
-scroll-chainspec = ["scroll", "chainspec", "dep:reth-scroll-chainspec", "scroll-hardforks"]
-scroll-evm-types = ["evm-types", "dep:scroll-alloy-evm"]
+scroll-chainspec = ["scroll", "chainspec", "dep:dogeos-chainspec", "scroll-hardforks"]
+scroll-evm-types = ["evm-types", "dep:dogeos-reth-evm"]
 scroll-hardforks = [
   "scroll",
   "hardforks",
-  "dep:reth-scroll-forks",
-  "reth-scroll-forks/serde",
+  "dep:dogeos-hardforks",
+  "dogeos-hardforks/serde",
 ]
-scroll-network-types = ["scroll", "network-types", "dep:scroll-alloy-network"]
+scroll-network-types = ["scroll", "network-types", "dep:dogeos-rpc-types"]
 scroll-reth-evm-types = [
   "scroll",
   "reth-evm-types",
-  "dep:reth-scroll-evm",
-  "dep:scroll-alloy-rpc-types",
+  "dep:dogeos-reth-evm",
+  "dep:dogeos-rpc-types",
 ]
 scroll-revm-types = [
   "scroll",

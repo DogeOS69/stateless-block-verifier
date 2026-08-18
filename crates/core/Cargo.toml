@@ -19,7 +19,7 @@ serde.workspace = true
 rkyv = { workspace = true, optional = true }
 itertools.workspace = true
 serde_with.workspace = true
-reth-primitives-traits = { workspace = true, features = ["serde", "serde-bincode-compat"] }
+reth-primitives-traits = { workspace = true, features = ["serde"] }
 thiserror.workspace = true
 
 sbv-primitives = { workspace = true, features = [

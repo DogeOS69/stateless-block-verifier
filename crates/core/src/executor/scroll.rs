@@ -45,13 +45,12 @@ impl EvmExecutor<'_> {
             revm::database::{State, states::bundle_state::BundleRetention},
         };
 
-        let provider = EthEvmConfig::scroll(self.chain_spec.clone());
+        let provider = EthEvmConfig::dogeos(self.chain_spec.clone());
         let factory = provider.block_executor_factory();
 
         let mut db = State::builder()
             .with_database(self.db)
             .with_bundle_update()
-            .without_state_clear()
             .build();
 
         let evm = provider

@@ -10,7 +10,7 @@ use crate::{
     },
 };
 #[cfg(feature = "scroll")]
-use scroll_alloy_consensus::ScrollTransaction;
+use dogeos_protocol_types::ScrollTransaction;
 
 /// Transaction object used in RPC
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]

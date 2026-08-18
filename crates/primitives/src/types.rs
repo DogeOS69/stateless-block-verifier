@@ -12,11 +12,20 @@ pub mod consensus {
     /// The Ethereum [EIP-2718] Transaction Envelope.
     pub type TxEnvelope = alloy_consensus::EthereumTxEnvelope<TxEip4844>;
     #[cfg(feature = "scroll")]
-    pub use scroll_alloy_consensus::{
+    pub use dogeos_protocol_types::{
         ScrollReceiptEnvelope as ReceiptEnvelope, ScrollTransaction,
         ScrollTxEnvelope as TxEnvelope, ScrollTxType as TxType,
         ScrollTypedTransaction as TypedTransaction, TxL1Message,
     };
+
+    /// Stable serde representations used by persisted block witnesses.
+    pub mod serde_bincode_compat {
+        #[cfg(not(feature = "scroll"))]
+        pub use alloy_consensus::serde_bincode_compat::EthereumTxEnvelope as TxEnvelope;
+        pub use alloy_consensus::serde_bincode_compat::Header;
+        #[cfg(feature = "scroll")]
+        pub use dogeos_protocol_types::serde_bincode_compat::ScrollTxEnvelope as TxEnvelope;
+    }
 }
 pub use consensus::{Header, TypedTransaction as AlloyTypedTransaction};
 
@@ -29,13 +38,13 @@ pub mod evm {
     pub use alloy_evm::precompiles;
 
     #[cfg(feature = "scroll-evm-types")]
-    pub use scroll_alloy_evm::{ScrollBlockExecutor, ScrollPrecompilesFactory};
+    pub use dogeos_reth_evm::{ScrollBlockExecutor, ScrollBlockExecutorFactory};
 
     #[cfg(feature = "scroll-compress-info")]
-    pub use scroll_alloy_evm::{compute_compressed_size, compute_compression_ratio};
+    pub use dogeos_reth_evm::{compute_compressed_size, compute_compression_ratio};
 
     #[cfg(any(feature = "scroll-evm-types", feature = "scroll-compress-info"))]
-    pub use scroll_alloy_evm::{ScrollTxCompressionInfo, ScrollTxCompressionInfos};
+    pub use dogeos_reth_evm::{ScrollTxCompressionInfo, ScrollTxCompressionInfos};
 }
 
 /// re-export types from alloy_network
@@ -46,7 +55,7 @@ pub mod network {
     pub type Network = alloy_network::Ethereum;
     /// Network definition
     #[cfg(feature = "scroll-network-types")]
-    pub type Network = scroll_alloy_network::Scroll;
+    pub type Network = dogeos_rpc_types::Scroll;
 }
 #[cfg(feature = "network-types")]
 pub use network::*;
@@ -67,14 +76,16 @@ pub mod revm {
 pub mod reth {
     /// Re-export types from `reth-primitives-types`
     pub mod primitives {
-        pub use reth_primitives::{RecoveredBlock, SealedBlock};
+        pub use reth_primitives_traits::{RecoveredBlock, SealedBlock};
 
-        #[cfg(not(feature = "scroll"))]
-        pub use reth_primitives::{Block, BlockBody, EthPrimitives, Receipt, TransactionSigned};
         #[cfg(feature = "scroll")]
-        pub use reth_scroll_primitives::{
-            ScrollBlock as Block, ScrollBlockBody as BlockBody, ScrollPrimitives as EthPrimitives,
+        pub use dogeos_reth_primitives::{
+            DogeosBlock as Block, DogeosBlockBody as BlockBody, DogeosPrimitives as EthPrimitives,
             ScrollReceipt as Receipt, ScrollTransactionSigned as TransactionSigned,
+        };
+        #[cfg(not(feature = "scroll"))]
+        pub use reth_ethereum_primitives::{
+            Block, BlockBody, EthPrimitives, Receipt, TransactionSigned,
         };
 
         pub use reth_primitives_traits::transaction::signed::SignedTransaction;
@@ -89,7 +100,7 @@ pub mod reth {
         pub use reth_evm_ethereum::{EthEvm, EthEvmConfig, RethReceiptBuilder};
 
         #[cfg(feature = "scroll-reth-evm-types")]
-        pub use reth_scroll_evm::{
+        pub use dogeos_reth_evm::{
             ScrollEvmConfig as EthEvmConfig, ScrollRethReceiptBuilder as RethReceiptBuilder,
         };
     }
@@ -106,9 +117,9 @@ pub mod rpc {
     #[cfg(not(feature = "scroll"))]
     pub use alloy_rpc_types_eth::{Transaction, TransactionReceipt, TransactionRequest};
     #[cfg(feature = "scroll")]
-    pub use scroll_alloy_rpc_types::{
-        ScrollTransactionReceipt as TransactionReceipt,
-        ScrollTransactionRequest as TransactionRequest, Transaction,
+    pub use dogeos_rpc_types::{
+        ScrollRpcTransaction as Transaction, ScrollTransactionReceipt as TransactionReceipt,
+        ScrollTransactionRequest as TransactionRequest,
     };
 
     /// Transaction object used in RPC.
