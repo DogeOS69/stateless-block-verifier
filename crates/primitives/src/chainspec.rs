@@ -41,16 +41,12 @@ pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
 /// Get chain spec
 #[cfg(feature = "scroll-chainspec")]
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    if chain == Chain::from_id(6281971) {
-        return Some(DOGEOS_CHIKYU.clone());
+    match chain.id() {
+        6_281_971 => Some(DOGEOS_CHIKYU.clone()),
+        0xff => Some(DOGEOS_MAINNET.clone()),
+        id if id == Chain::dev().id() => Some(DOGEOS_DEV.clone()),
+        _ => None,
     }
-    if chain == DOGEOS_MAINNET.chain {
-        return Some(DOGEOS_MAINNET.clone());
-    }
-    if chain == Chain::dev() {
-        return Some(DOGEOS_DEV.clone());
-    }
-    None
 }
 
 /// Get chain spec or build one from dev config as blueprint
