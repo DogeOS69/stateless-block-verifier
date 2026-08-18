@@ -35,10 +35,14 @@ pub use alloy_eips as eips;
 /// re-export types from alloy-evm
 #[cfg(feature = "evm-types")]
 pub mod evm {
-    pub use alloy_evm::precompiles;
+    pub use alloy_evm::{Evm, EvmEnv, precompiles};
 
     #[cfg(feature = "scroll-evm-types")]
-    pub use dogeos_reth_evm::{ScrollBlockExecutor, ScrollBlockExecutorFactory};
+    pub use dogeos_reth_evm::{
+        ReceiptBuilderCtx, ScrollBlockExecutionCtx, ScrollBlockExecutor,
+        ScrollBlockExecutorFactory, ScrollDefaultPrecompilesFactory, ScrollEvmFactory,
+        ScrollReceiptBuilder, spec_id_at_timestamp_and_number,
+    };
 
     #[cfg(feature = "scroll-compress-info")]
     pub use dogeos_reth_evm::{compute_compressed_size, compute_compression_ratio};
@@ -63,13 +67,20 @@ pub use network::*;
 /// re-export types from revm
 #[cfg(feature = "revm-types")]
 pub mod revm {
-    pub use revm::{bytecode::Bytecode, database, precompile, state::AccountInfo};
+    pub use revm::{
+        bytecode::Bytecode,
+        context::{BlockEnv, CfgEnv},
+        database, precompile,
+        state::AccountInfo,
+    };
 
     #[cfg(not(feature = "scroll"))]
     pub use revm::primitives::hardfork::SpecId;
 
     #[cfg(feature = "scroll-revm-types")]
-    pub use revm_scroll::{ScrollSpecId as SpecId, precompile::ScrollPrecompileProvider};
+    pub use revm_scroll::{
+        ScrollSpecId as SpecId, builder::ScrollCfgExt, precompile::ScrollPrecompileProvider,
+    };
 }
 
 /// re-export types from reth_primitives
@@ -100,13 +111,46 @@ pub mod reth {
         pub use reth_evm_ethereum::{EthEvm, EthEvmConfig, RethReceiptBuilder};
 
         #[cfg(feature = "scroll-reth-evm-types")]
-        pub use dogeos_reth_evm::{
-            ScrollEvmConfig as EthEvmConfig, ScrollRethReceiptBuilder as RethReceiptBuilder,
-        };
+        pub use crate::types::scroll::RethReceiptBuilder;
     }
 
     #[cfg(feature = "reth-execution-types")]
     pub use reth_execution_types as execution_types;
+}
+
+#[cfg(feature = "scroll-reth-evm-types")]
+mod scroll {
+    use alloy_consensus::{Eip658Value, Receipt};
+    use alloy_evm::Evm;
+    use dogeos_protocol_types::ScrollTransactionReceipt;
+    use dogeos_reth_evm::{ReceiptBuilderCtx, ScrollReceiptBuilder};
+    use dogeos_reth_primitives::{ScrollReceipt, ScrollTransactionSigned, ScrollTxType};
+
+    /// Builds DogeOS receipts without enabling the node-only `dogeos-reth-evm/std` feature.
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct RethReceiptBuilder;
+
+    impl ScrollReceiptBuilder for RethReceiptBuilder {
+        type Transaction = ScrollTransactionSigned;
+        type Receipt = ScrollReceipt;
+
+        fn build_receipt<E: Evm>(&self, ctx: ReceiptBuilderCtx<E>) -> Self::Receipt {
+            let inner = Receipt {
+                status: Eip658Value::Eip658(ctx.result.is_success()),
+                cumulative_gas_used: ctx.cumulative_gas_used,
+                logs: ctx.result.into_logs(),
+            };
+            let with_l1_fee = |inner| ScrollTransactionReceipt::new(inner, ctx.l1_fee);
+
+            match ScrollTxType::try_from(ctx.tx_type).expect("unexpected Scroll transaction type") {
+                ScrollTxType::Legacy => ScrollReceipt::Legacy(with_l1_fee(inner)),
+                ScrollTxType::Eip2930 => ScrollReceipt::Eip2930(with_l1_fee(inner)),
+                ScrollTxType::Eip1559 => ScrollReceipt::Eip1559(with_l1_fee(inner)),
+                ScrollTxType::Eip7702 => ScrollReceipt::Eip7702(with_l1_fee(inner)),
+                ScrollTxType::L1Message => ScrollReceipt::L1Message(inner),
+            }
+        }
+    }
 }
 
 /// re-export types from alloy_rpc_types_eth

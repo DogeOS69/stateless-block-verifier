@@ -101,7 +101,6 @@ scroll-reth-evm-types = [
   "scroll",
   "reth-evm-types",
   "dep:dogeos-reth-evm",
-  "dogeos-reth-evm/std",
   "dep:dogeos-rpc-types",
 ]
 scroll-revm-types = [

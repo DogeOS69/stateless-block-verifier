@@ -1,11 +1,14 @@
 use crate::database::WitnessDatabase;
 use sbv_primitives::{
     U256,
-    chainspec::ChainSpec,
-    types::reth::{
-        evm::{ConfigureEvm, EthEvmConfig, block::BlockExecutionError},
-        execution_types::BlockExecutionOutput,
-        primitives::{Block, Receipt, RecoveredBlock},
+    chainspec::{ChainSpec, EthChainSpec, scroll::ChainConfig},
+    types::{
+        consensus::BlockHeader,
+        reth::{
+            evm::{EvmFactory, RethReceiptBuilder, block::BlockExecutionError},
+            execution_types::BlockExecutionOutput,
+            primitives::{Block, Receipt, RecoveredBlock},
+        },
     },
 };
 use std::sync::Arc;
@@ -40,23 +43,57 @@ impl EvmExecutor<'_> {
     /// Handle the block with the given witness
     pub fn execute(self) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError> {
         use sbv_primitives::types::{
-            evm::ScrollBlockExecutor,
+            evm::{
+                EvmEnv, ScrollBlockExecutionCtx, ScrollBlockExecutor, ScrollBlockExecutorFactory,
+                ScrollDefaultPrecompilesFactory, ScrollEvmFactory, spec_id_at_timestamp_and_number,
+            },
             reth::evm::execute::BlockExecutor,
-            revm::database::{State, states::bundle_state::BundleRetention},
+            revm::{
+                BlockEnv, CfgEnv, ScrollCfgExt,
+                database::{State, states::bundle_state::BundleRetention},
+            },
         };
 
-        let provider = EthEvmConfig::dogeos(self.chain_spec.clone());
-        let factory = provider.block_executor_factory();
+        let factory = ScrollBlockExecutorFactory::new(
+            RethReceiptBuilder,
+            self.chain_spec.clone(),
+            ScrollEvmFactory::<ScrollDefaultPrecompilesFactory>::default(),
+        );
 
         let mut db = State::builder()
             .with_database(self.db)
             .with_bundle_update()
             .build();
 
-        let evm = provider
-            .evm_for_block(&mut db, self.block.header())
-            .expect("infallible");
-        let ctx = provider.context_for_block(self.block).expect("infallible");
+        let header = self.block.header();
+        let spec_id =
+            spec_id_at_timestamp_and_number(header.timestamp(), header.number(), &self.chain_spec);
+        let cfg_env = CfgEnv::new_scroll(spec_id).with_chain_id(self.chain_spec.chain().id());
+        let beneficiary = self
+            .chain_spec
+            .chain_config()
+            .fee_vault_address
+            .unwrap_or_else(|| header.beneficiary());
+        let evm = factory.evm_factory().create_evm(
+            &mut db,
+            EvmEnv::new(
+                cfg_env,
+                BlockEnv {
+                    number: U256::from(header.number()),
+                    beneficiary,
+                    timestamp: U256::from(header.timestamp()),
+                    gas_limit: header.gas_limit(),
+                    basefee: header.base_fee_per_gas().unwrap_or_default(),
+                    difficulty: header.difficulty(),
+                    prevrandao: header.mix_hash(),
+                    blob_excess_gas_and_price: None,
+                    slot_num: 0,
+                },
+            ),
+        );
+        let ctx = ScrollBlockExecutionCtx {
+            parent_hash: header.parent_hash(),
+        };
         let executor =
             ScrollBlockExecutor::new(evm, ctx, factory.spec().clone(), factory.receipt_builder());
 
