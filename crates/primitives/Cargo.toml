@@ -97,6 +97,11 @@ scroll-hardforks = [
   "dogeos-hardforks/serde",
 ]
 scroll-network-types = ["scroll", "network-types", "dep:dogeos-rpc-types"]
+# Do not enable `dogeos-reth-evm/std` here yet. The zkVM target supports Rust's standard library,
+# but `reth-primitives-traits` 0.1.1 folds `quanta` into its `std` feature. `quanta` 0.12.6 treats
+# every non-Windows, non-Wasm target (including `target_os = "zkvm"`) as Unix and requires libc's
+# `timespec`/`clock_gettime`, which the zkVM target does not provide. See the compatibility
+# implementation in `src/types.rs` and upstream reth-core commit 4342fddd67d3c2714f1bc4c4ac6725b1923b9a6d.
 scroll-reth-evm-types = [
   "scroll",
   "reth-evm-types",

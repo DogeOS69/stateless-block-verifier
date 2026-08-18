@@ -126,7 +126,20 @@ mod scroll {
     use dogeos_reth_evm::{ReceiptBuilderCtx, ScrollReceiptBuilder};
     use dogeos_reth_primitives::{ScrollReceipt, ScrollTransactionSigned, ScrollTxType};
 
-    /// Builds DogeOS receipts without enabling the node-only `dogeos-reth-evm/std` feature.
+    /// Compatibility copy of `dogeos_reth_evm::ScrollRethReceiptBuilder`.
+    ///
+    /// This is not a `no_std` requirement: the zkVM guest is built with Rust's standard library.
+    /// The blocker is `reth-primitives-traits` 0.1.1, whose `std` feature unconditionally enables
+    /// `quanta` 0.12.6. `quanta` selects its Unix clock backend for every non-Windows, non-Wasm
+    /// target, so `target_os = "zkvm"` tries to use libc's unavailable `timespec`,
+    /// `clock_gettime`, and `CLOCK_MONOTONIC` symbols.
+    ///
+    /// Upstream reth-core fixed this by making `quanta` opt-in and falling back to
+    /// `std::time::Instant` when it is disabled:
+    /// <https://github.com/paradigmxyz/reth-core/commit/4342fddd67d3c2714f1bc4c4ac6725b1923b9a6d>.
+    /// Once that fix is available in a compatible pinned `reth-primitives-traits` release, enable
+    /// `dogeos-reth-evm/std`, re-export `ScrollRethReceiptBuilder`, and delete this copy together
+    /// with the manual EVM configuration in `sbv-core`.
     #[derive(Debug, Default, Clone, Copy)]
     pub struct RethReceiptBuilder;
 

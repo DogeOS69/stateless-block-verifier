@@ -54,6 +54,9 @@ impl EvmExecutor<'_> {
             },
         };
 
+        // `ScrollEvmConfig` is currently behind `dogeos-reth-evm/std`. Keep this explicit setup in
+        // sync with `ScrollEvmConfig` until the `reth-primitives-traits`/`quanta` zkVM incompatibility
+        // documented in `sbv-primitives::types::scroll` is fixed in the pinned dependency line.
         let factory = ScrollBlockExecutorFactory::new(
             RethReceiptBuilder,
             self.chain_spec.clone(),
