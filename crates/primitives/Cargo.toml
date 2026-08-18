@@ -75,6 +75,8 @@ scroll = [
   "dep:dogeos-reth-primitives",
   "dep:dogeos-protocol-types",
   "dep:dogeos-rpc-types",
+  "dogeos-protocol-types/k256",
+  "dogeos-protocol-types/reth-compat",
   "dogeos-protocol-types/serde",
   "dogeos-protocol-types/serde-bincode-compat",
   "dogeos-reth-primitives/serde",
