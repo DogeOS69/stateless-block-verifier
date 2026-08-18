@@ -68,7 +68,7 @@ reth-ethereum-forks = { git = "https://github.com/DogeOS69/reth.git", rev = "972
 reth-execution-types = { git = "https://github.com/DogeOS69/reth.git", rev = "972366a0bfc11cf6a0d5dc79d5e779cd81e32232", default-features = false }
 reth-ethereum-primitives = { git = "https://github.com/DogeOS69/reth.git", rev = "972366a0bfc11cf6a0d5dc79d5e779cd81e32232", default-features = false }
 reth-primitives-traits = { version = "=0.1.1", default-features = false }
-reth-trie = { git = "https://github.com/DogeOS69/reth.git", rev = "972366a0bfc11cf6a0d5dc79d5e779cd81e32232", default-features = false }
+reth-trie-common = { git = "https://github.com/DogeOS69/reth.git", rev = "972366a0bfc11cf6a0d5dc79d5e779cd81e32232", default-features = false }
 
 dogeos-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "e2e098bc8a9a9847322564c873184fff43678172", default-features = false }
 dogeos-hardforks = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "e2e098bc8a9a9847322564c873184fff43678172", default-features = false }
