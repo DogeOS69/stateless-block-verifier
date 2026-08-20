@@ -49,4 +49,6 @@ whether or not the block itself mutates that contract.
 
 The older fixtures under `testdata/scroll/` were backfilled with the same account/storage
 proof nodes for `messageRoot` / `nextMessageIndex` so the full Scroll fixture sweep keeps
-covering DogeOS's post-execution queue reads.
+covering DogeOS's post-execution queue reads, except
+`testdata/scroll/feynman/534352-19604670.json`. That fixture intentionally remains in its
+original pre-backfill form to guard the pre-Tsuki missing-slot-1-proof path.

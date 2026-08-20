@@ -120,6 +120,24 @@ mod tests {
         assert_eq!(result.next_message_index, 0);
     }
 
+    /// A pre-backfill Feynman witness must verify without reading the absent slot-1 proof.
+    ///
+    /// Keep this fixture in its original pre-backfill form. If the pre-Tsuki gate is removed,
+    /// verification fails with `MPT: Unresolved node access` instead of returning the sentinel `0`.
+    #[test]
+    fn test_next_message_index_pre_tsuki_missing_slot1_proof_is_sentinel() {
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/scroll/feynman/534352-19604670.json"
+        ))
+        .unwrap();
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
+
+        let result = run_host(&[witness], chain_spec).unwrap();
+
+        assert_eq!(result.next_message_index, 0);
+    }
+
     #[test]
     fn test_next_message_index_overflow() {
         let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
