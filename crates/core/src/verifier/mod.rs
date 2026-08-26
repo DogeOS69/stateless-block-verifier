@@ -81,8 +81,13 @@ pub fn run(
             .collect(),
         ..Default::default()
     };
-    let (mut trie, bytecode) = SparseState::new(&execution_witness, pre_state_root)
-        .map_err(|_| StatelessValidationError::SparseStateCreationFailed)?;
+    let (mut trie, bytecode) =
+        SparseState::new(&execution_witness, pre_state_root).map_err(|source| {
+            StatelessValidationError::SparseStateCreationFailed {
+                pre_state_root,
+                source,
+            }
+        })?;
 
     let blocks = witnesses
         .iter()
@@ -120,9 +125,12 @@ pub fn run(
         #[cfg(feature = "scroll")]
         let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(_compression_infos));
 
-        let output = executor
-            .execute()
-            .map_err(|e| StatelessValidationError::StatelessExecutionFailed(e.to_string()))?;
+        let output = executor.execute().map_err(|source| {
+            StatelessValidationError::StatelessExecutionFailed {
+                block_number: block.number,
+                source,
+            }
+        })?;
         gas_used += output.gas_used;
 
         // Compute and check the post state root
@@ -150,11 +158,7 @@ pub fn run(
         blocks.last().as_ref().expect("witnesses can not be empty"),
         &trie,
     )
-    .map_err(|e| {
-        StatelessValidationError::StatelessExecutionFailed(format!(
-            "failed to get L2 message queue info: {e}"
-        ))
-    })?;
+    .map_err(|source| map_l2_message_queue_info_error(blocks.last().unwrap().number, source))?;
 
     Ok(VerifyResult {
         blocks,
@@ -166,4 +170,38 @@ pub fn run(
         #[cfg(feature = "scroll")]
         next_message_index,
     })
+}
+
+#[cfg(feature = "scroll")]
+fn map_l2_message_queue_info_error(
+    block_number: u64,
+    source: sbv_primitives::types::reth::evm::execute::ProviderError,
+) -> StatelessValidationError {
+    StatelessValidationError::L2MessageQueueInfoFailed {
+        block_number,
+        source,
+    }
+}
+
+#[cfg(all(test, feature = "scroll"))]
+mod tests {
+    use super::*;
+    use sbv_primitives::types::reth::evm::execute::ProviderError;
+    use std::io;
+
+    #[test]
+    fn queue_info_errors_are_not_classified_as_execution_failures() {
+        let error = map_l2_message_queue_info_error(
+            44,
+            ProviderError::other(io::Error::other("missing queue proof")),
+        );
+
+        assert!(matches!(
+            error,
+            StatelessValidationError::L2MessageQueueInfoFailed {
+                block_number: 44,
+                ..
+            }
+        ));
+    }
 }
