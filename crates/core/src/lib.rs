@@ -3,6 +3,8 @@
 #[macro_use]
 extern crate sbv_helpers;
 
+pub mod error;
+
 /// Witness type
 pub mod witness;
 pub use witness::BlockWitness;

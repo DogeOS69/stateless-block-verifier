@@ -1,8 +1,8 @@
 use crate::{
     BlockWitness,
+    error::StatelessValidationError,
     verifier::{VerifyResult, run},
 };
-use reth_stateless::validation::StatelessValidationError;
 use sbv_primitives::{B256, chainspec::ChainSpec};
 use std::{collections::BTreeMap, sync::Arc};
 

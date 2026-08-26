@@ -3,7 +3,6 @@
 use crate::{BlockWitness, EvmExecutor, database::WitnessDatabase, witness::BlockWitnessChunkExt};
 use itertools::Itertools;
 use reth_primitives_traits::RecoveredBlock;
-use reth_stateless::{StatelessTrie, validation::StatelessValidationError};
 use sbv_primitives::{
     B256, U256,
     chainspec::ChainSpec,
@@ -20,6 +19,7 @@ pub use scroll::*;
 
 #[cfg(not(feature = "scroll"))]
 mod ethereum;
+use crate::error::StatelessValidationError;
 #[cfg(not(feature = "scroll"))]
 pub use ethereum::*;
 
@@ -39,6 +39,11 @@ pub struct VerifyResult {
     #[cfg(feature = "scroll")]
     pub withdraw_root: B256,
     /// Next L2-to-L1 message index from Scroll's L2MessageQueue after executing the witnesses.
+    ///
+    /// Only extracted once the Tsuki hardfork is active. Before Tsuki the `nextMessageIndex`
+    /// storage proof is not guaranteed to be part of the witness (and may be absent), so this is
+    /// the sentinel `0` — **not** the real on-chain value. Consumers that fold this into proof
+    /// public inputs must not treat a pre-Tsuki `0` as authoritative. See `l2_message_queue_info`.
     #[cfg(feature = "scroll")]
     pub next_message_index: u64,
 }
@@ -50,7 +55,7 @@ pub fn run(
     #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
 ) -> Result<VerifyResult, StatelessValidationError> {
     if witnesses.is_empty() {
-        return Err(StatelessValidationError::Custom("empty witnesses"));
+        return Err(StatelessValidationError::EmptyWitnesses);
     }
     if !witnesses.has_same_chain_id() {
         return Err(StatelessValidationError::InvalidAncestorChain);
@@ -76,7 +81,13 @@ pub fn run(
             .collect(),
         ..Default::default()
     };
-    let (mut trie, bytecode) = SparseState::new(&execution_witness, pre_state_root)?;
+    let (mut trie, bytecode) =
+        SparseState::new(&execution_witness, pre_state_root).map_err(|source| {
+            StatelessValidationError::SparseStateCreationFailed {
+                pre_state_root,
+                source,
+            }
+        })?;
 
     let blocks = witnesses
         .iter()
@@ -85,7 +96,7 @@ pub fn run(
             w.build_reth_block()
         })
         .collect::<Result<Vec<RecoveredBlock<Block>>, _>>()
-        .map_err(|_| StatelessValidationError::Custom("sender recovery failed"))?;
+        .map_err(|_| StatelessValidationError::SignerRecovery)?;
 
     if !blocks
         .iter()
@@ -114,15 +125,18 @@ pub fn run(
         #[cfg(feature = "scroll")]
         let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(_compression_infos));
 
-        let output = executor
-            .execute()
-            .map_err(|e| StatelessValidationError::StatelessExecutionFailed(e.to_string()))?;
+        let output = executor.execute().map_err(|source| {
+            StatelessValidationError::StatelessExecutionFailed {
+                block_number: block.number,
+                source,
+            }
+        })?;
         gas_used += output.gas_used;
 
         // Compute and check the post state root
         let hashed_state =
             HashedPostState::from_bundle_state::<KeccakKeyHasher>(&output.state.state);
-        let state_root = trie.calculate_state_root(hashed_state)?;
+        let state_root = trie.calculate_state_root(hashed_state);
 
         if block.state_root != state_root {
             dev_error!(
@@ -139,11 +153,12 @@ pub fn run(
     }
 
     #[cfg(feature = "scroll")]
-    let (withdraw_root, next_message_index) = l2_message_queue_info(&trie).map_err(|e| {
-        StatelessValidationError::StatelessExecutionFailed(format!(
-            "failed to get L2 message queue info: {e}"
-        ))
-    })?;
+    let (withdraw_root, next_message_index) = l2_message_queue_info(
+        &chain_spec,
+        blocks.last().as_ref().expect("witnesses can not be empty"),
+        &trie,
+    )
+    .map_err(|source| map_l2_message_queue_info_error(blocks.last().unwrap().number, source))?;
 
     Ok(VerifyResult {
         blocks,
@@ -155,4 +170,38 @@ pub fn run(
         #[cfg(feature = "scroll")]
         next_message_index,
     })
+}
+
+#[cfg(feature = "scroll")]
+fn map_l2_message_queue_info_error(
+    block_number: u64,
+    source: sbv_primitives::types::reth::evm::execute::ProviderError,
+) -> StatelessValidationError {
+    StatelessValidationError::L2MessageQueueInfoFailed {
+        block_number,
+        source,
+    }
+}
+
+#[cfg(all(test, feature = "scroll"))]
+mod tests {
+    use super::*;
+    use sbv_primitives::types::reth::evm::execute::ProviderError;
+    use std::io;
+
+    #[test]
+    fn queue_info_errors_are_not_classified_as_execution_failures() {
+        let error = map_l2_message_queue_info_error(
+            44,
+            ProviderError::other(io::Error::other("missing queue proof")),
+        );
+
+        assert!(matches!(
+            error,
+            StatelessValidationError::L2MessageQueueInfoFailed {
+                block_number: 44,
+                ..
+            }
+        ));
+    }
 }

@@ -13,14 +13,15 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+alloy-rlp.workspace = true
 auto_impl.workspace = true
 tracing = { workspace = true, optional = true }
 serde.workspace = true
 rkyv = { workspace = true, optional = true }
 itertools.workspace = true
 serde_with.workspace = true
-reth-primitives-traits = { workspace = true, features = ["serde", "serde-bincode-compat"] }
-reth-stateless.workspace = true
+reth-primitives-traits = { workspace = true, features = ["serde"] }
+thiserror.workspace = true
 
 sbv-primitives = { workspace = true, features = [
   "chainspec",
@@ -44,7 +45,9 @@ rkyv = ["dep:rkyv", "sbv-primitives/rkyv"]
 
 scroll = [
   "sbv-primitives/scroll-chainspec",
+  "sbv-primitives/scroll-evm-types",
   "sbv-primitives/scroll-reth-evm-types",
+  "sbv-primitives/scroll-revm-types",
 ]
 scroll-compress-info = ["sbv-primitives/scroll-compress-info"]
 dev = ["dep:tracing", "sbv-primitives/dev", "sbv-trie/dev"]

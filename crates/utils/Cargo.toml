@@ -24,6 +24,9 @@ serde = { workspace = true, features = ["derive"] }
 sbv-primitives = { workspace = true, features = ["network-types"] }
 sbv-core.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [features]
 scroll = [
   "sbv-primitives/scroll-network-types",

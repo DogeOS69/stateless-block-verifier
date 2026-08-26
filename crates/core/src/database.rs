@@ -1,7 +1,6 @@
 //! Most copied from <https://github.com/paradigmxyz/reth/blob/5c18df9889941837e61929be4b51abb75f07f152/crates/stateless/src/witness_db.rs>
 //! Under MIT license
 
-use reth_stateless::StatelessTrie;
 pub use sbv_primitives::types::revm::database::Database;
 use sbv_primitives::{
     Address, B256, U256,
@@ -74,6 +73,7 @@ impl Database for WitnessDatabase<'_> {
                 balance: account.balance,
                 nonce: account.nonce,
                 code_hash: account.code_hash,
+                account_id: None,
                 code: None,
             })
         })
