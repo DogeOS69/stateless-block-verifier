@@ -138,6 +138,46 @@ mod tests {
         assert_eq!(result.next_message_index, 0);
     }
 
+    /// Real DogeOS witnesses from a Tsuki materializer run must replay as a contiguous chunk.
+    ///
+    /// These blocks contain no L1 messages, so the queue index remains zero. The forced Tsuki
+    /// chain spec is intentional: the local fixture predates the public Chikyū activation time,
+    /// but was produced by a Tsuki-enabled development network.
+    #[test]
+    fn test_next_message_index_tsuki_empty_queue_witnesses() {
+        let witnesses = [
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/11.json"
+            ),
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/12.json"
+            ),
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/13.json"
+            ),
+        ]
+        .map(|json| serde_json::from_str::<BlockWitness>(json).unwrap());
+
+        assert!(
+            witnesses
+                .iter()
+                .all(|witness| witness.chain_id == 6_281_971)
+        );
+        assert_eq!(
+            witnesses
+                .iter()
+                .map(|witness| witness.header.number)
+                .collect::<Vec<_>>(),
+            [11, 12, 13]
+        );
+
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
+        let result = run_host(&witnesses, chain_spec).unwrap();
+
+        assert_eq!(result.next_message_index, 0);
+    }
+
     #[test]
     fn test_next_message_index_overflow() {
         let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
