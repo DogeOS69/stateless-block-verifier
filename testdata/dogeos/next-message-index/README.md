@@ -1,5 +1,29 @@
 # Next Message Index Fixture
 
+## DogeOS Tsuki empty-queue fixture
+
+`tsuki-empty-queue/{11,12,13}.json` are real, consecutive DogeOS block witnesses
+copied from the fixture merged in `DogeOS69/scroll-zkvm-prover#20`. They came
+from the Tsuki materializer run
+`tsuki-definitive-6a13b33f-vast-retry-20260714T011747Z` on chain `6281971`,
+using SBV revision `ec6059bd`.
+
+These blocks contain no L1 messages, so replaying all three under an explicitly
+forced Tsuki chain spec must leave `next_message_index` at `0`. The forced spec
+is required because the development fixture predates Chikyū's public Tsuki
+activation timestamp even though the source network was running Tsuki code.
+
+Original SHA-256 digests:
+
+- `11.json`: `e076dd8c56a7320ce3b0c0cf623409d6ef88887c8925551441f7a28de3b1b134`
+- `12.json`: `0eb289270eb75f240d66dd68adda6f7440647cc8aa0b2df1f18f752d50038afe`
+- `13.json`: `c5409b760753723501632c46efdc72227ad803b17b26f81a4ece4178f4ec3979`
+
+This is the non-advancing case. Keep a deposit-bearing Tsuki witness as a
+separate fixture so the `next_message_index > 0` transition remains covered.
+
+## Scroll mainnet transition fixture
+
 `20240125.json` is a Scroll mainnet block witness for block `20240125`.
 
 `14919991-missing-slot1-proof.json` is a companion **regression** fixture: a real
