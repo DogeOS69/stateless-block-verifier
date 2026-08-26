@@ -19,7 +19,7 @@ serde.workspace = true
 rkyv = { workspace = true, optional = true }
 itertools.workspace = true
 serde_with.workspace = true
-reth-primitives-traits = { workspace = true, features = ["serde", "serde-bincode-compat"] }
+reth-primitives-traits = { workspace = true, features = ["serde"] }
 thiserror.workspace = true
 
 sbv-primitives = { workspace = true, features = [
@@ -46,6 +46,7 @@ scroll = [
   "sbv-primitives/scroll-chainspec",
   "sbv-primitives/scroll-evm-types",
   "sbv-primitives/scroll-reth-evm-types",
+  "sbv-primitives/scroll-revm-types",
 ]
 scroll-compress-info = ["sbv-primitives/scroll-compress-info"]
 dev = ["dep:tracing", "sbv-primitives/dev", "sbv-trie/dev"]

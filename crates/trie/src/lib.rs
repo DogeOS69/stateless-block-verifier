@@ -4,7 +4,7 @@
 //! under Apache License 2.0
 
 use alloy_trie::{EMPTY_ROOT_HASH, TrieAccount};
-pub use reth_trie::{HashedPostState, KeccakKeyHasher};
+pub use reth_trie_common::{HashedPostState, KeccakKeyHasher};
 use risc0_ethereum_trie::CachedTrie;
 use sbv_primitives::{
     Address, B256, Bytes, U256,

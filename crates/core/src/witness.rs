@@ -1,6 +1,5 @@
 use auto_impl::auto_impl;
 use itertools::Itertools;
-use reth_primitives_traits::serde_bincode_compat::BincodeReprFor;
 use sbv_primitives::{
     B256, Bytes, ChainId, SignatureError, U256,
     types::{
@@ -18,12 +17,12 @@ pub struct BlockWitness {
     /// Chain id
     pub chain_id: ChainId,
     /// Block header representation.
-    #[serde_as(as = "BincodeReprFor<'_, Header>")]
+    #[serde_as(as = "sbv_primitives::types::consensus::serde_bincode_compat::Header")]
     pub header: Header,
     /// State trie root before the block.
     pub prev_state_root: B256,
     /// Transactions in the block.
-    #[serde_as(as = "Vec<BincodeReprFor<'_, TxEnvelope>>")]
+    #[serde_as(as = "Vec<sbv_primitives::types::consensus::serde_bincode_compat::TxEnvelope<'_>>")]
     pub transactions: Vec<TxEnvelope>,
     /// Withdrawals in the block.
     pub withdrawals: Option<Withdrawals>,

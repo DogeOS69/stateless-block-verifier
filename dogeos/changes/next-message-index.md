@@ -48,10 +48,10 @@ part of `VerifyResult`.
 - `test_next_message_index_overflow` asserts a slot value above `u64::MAX` is
   rejected with an error rather than panicking.
 - `testdata/dogeos/next-message-index/6281971-19.json` pins local DogeOS chain
-  block 19, where Tsuki is active through the registered Chikyū chain spec and
-  queue slot 1 changes from `0` to `1`. The full witness replays successfully
-  and `test_next_message_index_post_tsuki_transition` asserts the authenticated
-  nonzero value `1`.
+  block 19, where an explicitly forced Tsuki chain spec reproduces the source
+  development network and queue slot 1 changes from `0` to `1`. The full witness
+  replays successfully and `test_next_message_index_post_tsuki_transition`
+  asserts the authenticated nonzero value `1`.
 - The committed Scroll fixture sweep under `testdata/scroll/` is backfilled with
   `L2MessageQueue` proof nodes so the existing replay tests continue to work on
   the DogeOS verifier path.

@@ -3,11 +3,9 @@ use std::sync::Arc;
 pub use reth_chainspec::{self, *};
 
 #[cfg(feature = "scroll-chainspec")]
-pub use reth_scroll_chainspec as scroll;
+pub use dogeos_chainspec as scroll;
 #[cfg(feature = "scroll-chainspec")]
-pub use reth_scroll_chainspec::{
-    DOGEOS_CHIKYU, DOGEOS_MAINNET, SCROLL_DEV, SCROLL_MAINNET, SCROLL_SEPOLIA,
-};
+pub use dogeos_chainspec::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET};
 
 /// An Ethereum chain specification.
 ///
@@ -20,7 +18,7 @@ pub use reth_scroll_chainspec::{
 pub type ChainSpec = reth_chainspec::ChainSpec;
 /// Scroll chain spec type.
 #[cfg(feature = "scroll-chainspec")]
-pub type ChainSpec = scroll::ScrollChainSpec;
+pub type ChainSpec = scroll::DogeosChainSpec;
 
 /// Get chain spec
 #[cfg(not(feature = "scroll-chainspec"))]
@@ -43,20 +41,12 @@ pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
 /// Get chain spec
 #[cfg(feature = "scroll-chainspec")]
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    if chain == Chain::from_id(6281971) {
-        return Some(DOGEOS_CHIKYU.clone());
+    match chain.id() {
+        6_281_971 => Some(DOGEOS_CHIKYU.clone()),
+        0xff => Some(DOGEOS_MAINNET.clone()),
+        id if id == Chain::dev().id() => Some(DOGEOS_DEV.clone()),
+        _ => None,
     }
-    // FIXME: DogeOS mainnet
-    if chain == Chain::from_named(NamedChain::Scroll) {
-        return Some(SCROLL_MAINNET.clone());
-    }
-    if chain == Chain::from_named(NamedChain::ScrollSepolia) {
-        return Some(SCROLL_SEPOLIA.clone());
-    }
-    if chain == Chain::dev() {
-        return Some(SCROLL_DEV.clone());
-    }
-    None
 }
 
 /// Get chain spec or build one from dev config as blueprint
@@ -73,7 +63,7 @@ where
         };
         #[cfg(feature = "scroll-chainspec")]
         let mut spec = {
-            let mut spec = (**SCROLL_DEV).clone();
+            let mut spec = (**DOGEOS_DEV).clone();
             spec.inner.chain = chain;
             spec
         };
@@ -90,82 +80,31 @@ pub fn build_chain_spec_force_hardfork(
     hardfork: crate::hardforks::Hardfork,
 ) -> Arc<ChainSpec> {
     use crate::hardforks::Hardfork;
-    use reth_scroll_chainspec::{ScrollChainConfig, ScrollChainSpec};
-    use std::sync::{Arc, LazyLock};
+    use dogeos_chainspec::DogeosChainSpecBuilder;
 
-    static BASE_HARDFORKS: LazyLock<ChainHardforks> = LazyLock::new(|| {
-        ChainHardforks::new(vec![
-            (EthereumHardfork::Homestead.boxed(), ForkCondition::Block(0)),
-            (EthereumHardfork::Tangerine.boxed(), ForkCondition::Block(0)),
-            (
-                EthereumHardfork::SpuriousDragon.boxed(),
-                ForkCondition::Block(0),
-            ),
-            (EthereumHardfork::Byzantium.boxed(), ForkCondition::Block(0)),
-            (
-                EthereumHardfork::Constantinople.boxed(),
-                ForkCondition::Block(0),
-            ),
-            (
-                EthereumHardfork::Petersburg.boxed(),
-                ForkCondition::Block(0),
-            ),
-            (EthereumHardfork::Istanbul.boxed(), ForkCondition::Block(0)),
-            (EthereumHardfork::Berlin.boxed(), ForkCondition::Block(0)),
-            (EthereumHardfork::London.boxed(), ForkCondition::Block(0)),
-        ])
-    });
-
-    let mut hardforks = BASE_HARDFORKS.clone();
-
-    if hardfork >= Hardfork::Archimedes {
-        hardforks.insert(Hardfork::Archimedes, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::Bernoulli {
-        hardforks.insert(EthereumHardfork::Shanghai, ForkCondition::Timestamp(0));
-        hardforks.insert(Hardfork::Bernoulli, ForkCondition::Block(0));
-    }
-    if hardfork >= Hardfork::Curie {
-        hardforks.insert(Hardfork::Curie, ForkCondition::Block(0));
-    }
-    if hardfork >= Hardfork::Darwin {
-        hardforks.insert(Hardfork::Darwin, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::DarwinV2 {
-        hardforks.insert(Hardfork::DarwinV2, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::Euclid {
-        hardforks.insert(Hardfork::Euclid, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::EuclidV2 {
-        hardforks.insert(Hardfork::EuclidV2, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::Feynman {
-        hardforks.insert(Hardfork::Feynman, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::Galileo {
-        hardforks.insert(Hardfork::Galileo, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::GalileoV2 {
-        hardforks.insert(Hardfork::GalileoV2, ForkCondition::Timestamp(0));
-    }
-    if hardfork >= Hardfork::Tsuki {
-        hardforks.insert(Hardfork::Tsuki, ForkCondition::Timestamp(0));
+    let mut builder = DogeosChainSpecBuilder::dev().chain(chain);
+    for fork in [
+        Hardfork::Feynman,
+        Hardfork::Galileo,
+        Hardfork::GalileoV2,
+        Hardfork::Tsuki,
+    ] {
+        builder = builder.with_fork(
+            fork,
+            if fork <= hardfork {
+                ForkCondition::Timestamp(0)
+            } else {
+                ForkCondition::Never
+            },
+        );
     }
     sbv_helpers::dev_info!(
         "Building chain spec for chain {} with hardfork {:?}",
         chain,
-        hardforks
+        hardfork
     );
 
-    Arc::new(ScrollChainSpec {
-        inner: reth_chainspec::ChainSpec {
-            chain,
-            hardforks,
-            ..Default::default()
-        },
-        config: ScrollChainConfig::mainnet(),
-    })
+    Arc::new(builder.build(DOGEOS_DEV.config))
 }
 
 /// Build a chain spec with a hardfork, enabling all hardforks up to the specified one.
@@ -271,11 +210,11 @@ mod tests {
         let chain_spec = get_chain_spec_or_build(Chain::from_id(42424242), |spec| {
             spec.inner
                 .hardforks
-                .insert(Hardfork::DarwinV2, ForkCondition::Block(10));
+                .insert(Hardfork::Galileo, ForkCondition::Block(10));
         });
         assert_eq!(chain_spec.chain, Chain::from_id(42424242));
-        assert!(!chain_spec.is_fork_active_at_block(Hardfork::DarwinV2, 0));
-        assert!(chain_spec.is_fork_active_at_block(Hardfork::DarwinV2, 10));
+        assert!(!chain_spec.is_fork_active_at_block(Hardfork::Galileo, 0));
+        assert!(chain_spec.is_fork_active_at_block(Hardfork::Galileo, 10));
     }
 
     #[cfg(feature = "scroll-chainspec")]

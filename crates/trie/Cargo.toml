@@ -14,7 +14,7 @@ workspace = true
 [dependencies]
 alloy-rlp.workspace = true
 alloy-trie.workspace = true
-reth-trie.workspace = true
+reth-trie-common.workspace = true
 #reth-stateless.workspace = true
 risc0-ethereum-trie = { workspace = true, features = ["serde"] }
 sbv-primitives = { workspace = true, features = ["revm-types", "reth-evm-types"] }
