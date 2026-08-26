@@ -1,4 +1,39 @@
-# Next Message Index Fixture
+# Next Message Index Fixtures
+
+This directory covers the pre-Tsuki sentinel path and both advancing and
+non-advancing Tsuki-enabled development-network replays.
+
+## DogeOS Tsuki advancing fixture
+
+`6281971-19.json` is a genuine block witness from the local DogeOS
+`real_scroll_reth_withdrawal_readiness` topology. Block 19 calls
+`withdrawToL1(address)` and changes `L2MessageQueue.nextMessageIndex` from `0`
+in the parent state to `1` in the final state.
+
+The test uses an explicitly forced Tsuki chain spec. This is intentional: the
+fixture came from a Tsuki-enabled local network, while the registered Chikyū
+spec does not activate Tsuki for its timestamp.
+
+Pinned provenance:
+
+- chain ID: `6281971` (`0x5fdaf3`)
+- block number: `19` (`0x13`)
+- timestamp: `1784102950` (`0x6a574026`)
+- block hash: `0x17ce064e49dc6f59353d35487eee042140490b885e73275a69ad23982494ecbc`
+- parent state root: `0x80479f9622ccb9d62a40ee02a217494c17413163ab10596ba189ab6be3901c88`
+- post-state root: `0x0824e511633e44abe11ded8c271dbfcecea21263cb37fc84d1835dc379b5724d`
+- parent slot-1 value: `0`
+- final slot-1 value: `1`
+- fixture SHA-256: `9083f9ec8bec979386d2944eb0777b6a8d4395fad4f3ed7906adcee7b0a54866`
+- rollup-node image: `dogeos69/rollup-node:tsuki-5bce327d-reth-39b31f82`
+- image digest: `sha256:ed13066066e22bd5c220827b678a6cf59858fbd0d44463f9fcd3ccd97ec76e5b`
+- embedded `reth-scroll-cli` revision: `39b31f822cc2b4c54db32ba2f0484ca2a157c3f5`
+- SBV collection/replay base: `ec6059bdc48fb60d8340ba86b32bbe8d41111cd4`
+
+The witness came directly from `sbv-cli dump`; it was not hand-pruned and no
+proof nodes were manually appended. Independent `eth_getProof` checks covered
+queue slots 0/1 and the NativeDogeToken account at the parent and final states.
+The canonical parent and header roots are unchanged.
 
 ## DogeOS Tsuki empty-queue fixture
 
@@ -10,8 +45,8 @@ using SBV revision `ec6059bd`.
 
 These blocks contain no L1 messages, so replaying all three under an explicitly
 forced Tsuki chain spec must leave `next_message_index` at `0`. The forced spec
-is required because the development fixture predates Chikyū's public Tsuki
-activation timestamp even though the source network was running Tsuki code.
+is required because the registered Chikyū spec does not activate Tsuki for
+these development-network fixtures.
 
 Original SHA-256 digests:
 
@@ -22,7 +57,7 @@ Original SHA-256 digests:
 This is the non-advancing case. Keep a deposit-bearing Tsuki witness as a
 separate fixture so the `next_message_index > 0` transition remains covered.
 
-## Scroll mainnet transition fixture
+## Scroll mainnet pre-Tsuki fixtures
 
 `20240125.json` is a Scroll mainnet block witness for block `20240125`.
 

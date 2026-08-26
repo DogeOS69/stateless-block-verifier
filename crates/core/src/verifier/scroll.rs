@@ -178,6 +178,45 @@ mod tests {
         assert_eq!(result.next_message_index, 0);
     }
 
+    /// Genuine Tsuki-enabled DogeOS local-node transition fixture.
+    ///
+    /// Block 19's first transaction calls `withdrawToL1(address)`, enqueueing the first L2-to-L1
+    /// withdrawal message and changing the authenticated queue slot from `0` in its parent state
+    /// to `1` in its final state. The forced Tsuki chain spec is intentional: this development
+    /// fixture predates a public Chikyū activation and the registered Chikyū spec does not activate
+    /// Tsuki.
+    #[test]
+    fn test_next_message_index_post_tsuki_transition() {
+        const EXPECTED_NEXT_MESSAGE_INDEX: u64 = 1;
+        const EXPECTED_BLOCK_HASH: B256 = sbv_primitives::b256!(
+            "17ce064e49dc6f59353d35487eee042140490b885e73275a69ad23982494ecbc"
+        );
+        const EXPECTED_PARENT_STATE_ROOT: B256 = sbv_primitives::b256!(
+            "80479f9622ccb9d62a40ee02a217494c17413163ab10596ba189ab6be3901c88"
+        );
+        const EXPECTED_POST_STATE_ROOT: B256 = sbv_primitives::b256!(
+            "0824e511633e44abe11ded8c271dbfcecea21263cb37fc84d1835dc379b5724d"
+        );
+
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/6281971-19.json"
+        ))
+        .unwrap();
+        assert_ne!(EXPECTED_NEXT_MESSAGE_INDEX, 0);
+        assert_eq!(witness.chain_id, 6_281_971);
+        assert_eq!(witness.header.number, 19);
+        assert_eq!(witness.prev_state_root, EXPECTED_PARENT_STATE_ROOT);
+        assert_eq!(witness.header.state_root, EXPECTED_POST_STATE_ROOT);
+
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
+        assert!(chain_spec.is_tsuki_active_at_timestamp(witness.header.timestamp));
+
+        let result = run_host(&[witness], chain_spec).unwrap();
+        assert_eq!(result.blocks[0].hash(), EXPECTED_BLOCK_HASH);
+        assert_eq!(result.next_message_index, EXPECTED_NEXT_MESSAGE_INDEX);
+    }
+
     #[test]
     fn test_next_message_index_overflow() {
         let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))
