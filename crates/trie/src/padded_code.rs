@@ -61,7 +61,7 @@ impl PaddedCode {
         if padded.len() < minimum_len {
             return Err(PaddedCodeError::InsufficientPadding);
         }
-        if (padded.as_ptr() as usize) % Self::ALIGNMENT != 0 {
+        if !(padded.as_ptr() as usize).is_multiple_of(Self::ALIGNMENT) {
             return Err(PaddedCodeError::Misaligned);
         }
         if padded[original_len..].iter().any(|byte| *byte != 0) {
