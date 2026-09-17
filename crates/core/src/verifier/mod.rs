@@ -8,7 +8,7 @@ use sbv_primitives::{
     chainspec::ChainSpec,
     types::{reth::primitives::Block, rpc::ExecutionWitness},
 };
-use sbv_trie::{HashedPostState, KeccakKeyHasher, SparseState};
+use sbv_trie::{HashedPostState, KeccakKeyHasher, PaddedCode, SparseState};
 use std::sync::Arc;
 
 #[cfg(feature = "scroll")]
@@ -54,6 +54,42 @@ pub fn run(
     chain_spec: Arc<ChainSpec>,
     #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
 ) -> Result<VerifyResult, StatelessValidationError> {
+    run_inner(
+        witnesses,
+        chain_spec,
+        #[cfg(feature = "scroll")]
+        compression_infos,
+        &[],
+    )
+}
+
+/// Verifies block witnesses using validated padded code buffers when available.
+///
+/// Padded code is hashed from its original bytes and replaces matching ordinary
+/// witness code without copying its payload. Witnesses may omit ordinary code
+/// supplied here; any remaining ordinary code follows the standard [`run`] path.
+/// This entry point does not change the [`BlockWitness`] representation or serde.
+pub fn run_with_padded_codes(
+    witnesses: &[BlockWitness],
+    chain_spec: Arc<ChainSpec>,
+    #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
+    padded_codes: &[PaddedCode],
+) -> Result<VerifyResult, StatelessValidationError> {
+    run_inner(
+        witnesses,
+        chain_spec,
+        #[cfg(feature = "scroll")]
+        compression_infos,
+        padded_codes,
+    )
+}
+
+fn run_inner(
+    witnesses: &[BlockWitness],
+    chain_spec: Arc<ChainSpec>,
+    #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
+    padded_codes: &[PaddedCode],
+) -> Result<VerifyResult, StatelessValidationError> {
     if witnesses.is_empty() {
         return Err(StatelessValidationError::EmptyWitnesses);
     }
@@ -82,12 +118,13 @@ pub fn run(
         ..Default::default()
     };
     let (mut trie, bytecode) =
-        SparseState::new(&execution_witness, pre_state_root).map_err(|source| {
-            StatelessValidationError::SparseStateCreationFailed {
-                pre_state_root,
-                source,
-            }
-        })?;
+        SparseState::new_with_padded_codes(&execution_witness, pre_state_root, padded_codes)
+            .map_err(
+                |source| StatelessValidationError::SparseStateCreationFailed {
+                    pre_state_root,
+                    source,
+                },
+            )?;
 
     let blocks = witnesses
         .iter()

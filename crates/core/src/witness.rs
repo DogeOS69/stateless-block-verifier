@@ -10,6 +10,8 @@ use sbv_primitives::{
     },
 };
 
+mod static_input;
+
 /// Witness for a block.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -37,6 +39,20 @@ pub struct BlockWitness {
 }
 
 impl BlockWitness {
+    /// Deserializes a witness, borrowing code and trie bytes from static input when possible.
+    ///
+    /// Guest callers can provide input retained for the lifetime of the program, for example
+    /// with [`Vec::leak`]. Borrowed bytes remain valid after the deserializer is dropped and
+    /// after the witness is cloned. Formats that cannot borrow bytes still allocate them.
+    /// The ordinary [`serde::Deserialize`] implementation always retains ownership semantics
+    /// and should be used for host input that can be freed or modified.
+    pub fn deserialize_from_static<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'static>,
+    {
+        static_input::StaticBlockWitness::deserialize(deserializer)
+    }
+
     /// Calculates compression ratios for all transactions in the block witness.
     ///
     /// # Panics
