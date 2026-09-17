@@ -17,6 +17,9 @@ use sbv_primitives::{
 };
 use std::{cell::RefCell, marker::PhantomData};
 
+mod padded_code;
+pub use padded_code::{PaddedCode, PaddedCodeError};
+
 /// Zero-overhead helper for tries that only contain RLP encoded data.
 #[derive(Debug, Clone, Default)]
 #[repr(transparent)]
@@ -112,6 +115,20 @@ impl SparseState {
         witness: &ExecutionWitness,
         pre_state_root: B256,
     ) -> alloy_rlp::Result<(Self, B256Map<Bytecode>)> {
+        Self::new_with_padded_codes(witness, pre_state_root, &[])
+    }
+
+    /// Initializes the trie with code buffers prepared for borrowed guest execution.
+    ///
+    /// Both padded and ordinary code are keyed by the hash of their original bytes.
+    /// Padded entries replace matching ordinary code before analysis, avoiding the
+    /// ordinary constructor's payload copy. Ordinary code absent from `padded_codes`
+    /// retains the existing construction path. Callers cannot supply code hash keys.
+    pub fn new_with_padded_codes(
+        witness: &ExecutionWitness,
+        pre_state_root: B256,
+        padded_codes: &[PaddedCode],
+    ) -> alloy_rlp::Result<(Self, B256Map<Bytecode>)> {
         // first, hash all the RLP nodes once
         let rlp_by_digest: B256Map<_> = witness
             .state
@@ -122,12 +139,19 @@ impl SparseState {
         // construct the state trie from the witness data and the given state root
         let state = RlpTrie::from_prehashed(pre_state_root, &rlp_by_digest)?;
 
-        // hash all the supplied bytecode
-        let bytecode = witness
-            .codes
-            .iter()
-            .map(|code| (keccak256(code), Bytecode::new_raw(code.clone())))
-            .collect();
+        // Hash only original bytes. Padding and witness-provided metadata never
+        // participate in the lookup key used by authenticated trie accounts.
+        let mut bytecode = B256Map::default();
+        for code in padded_codes {
+            bytecode
+                .entry(keccak256(code.original_byte_slice()))
+                .or_insert_with(|| code.to_bytecode());
+        }
+        for code in &witness.codes {
+            bytecode
+                .entry(keccak256(code))
+                .or_insert_with(|| Bytecode::new_raw(code.clone()));
+        }
 
         Ok((
             Self {
