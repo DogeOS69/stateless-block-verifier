@@ -257,6 +257,162 @@ mod tests {
         assert!(error.to_string().contains(&format!("{corrupt_root}")));
     }
 
+    fn tsuki_empty_queue_witnesses() -> [BlockWitness; 3] {
+        [
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/11.json"
+            ),
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/12.json"
+            ),
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/13.json"
+            ),
+        ]
+        .map(|json| serde_json::from_str::<BlockWitness>(json).unwrap())
+    }
+
+    fn honest_compression_infos(witnesses: &[BlockWitness]) -> Vec<Vec<(U256, usize)>> {
+        witnesses
+            .iter()
+            .map(BlockWitness::compression_infos)
+            .collect()
+    }
+
+    /// Drop the last info (`delta < 0`) or append a copy of the last info (`delta > 0`).
+    fn resize_infos(infos: &mut Vec<(U256, usize)>, delta: isize) {
+        match delta {
+            -1 => {
+                infos.pop().expect("block must have a transaction");
+            }
+            0 => {}
+            1 => {
+                let extra = infos.last().copied().unwrap_or((U256::ZERO, 0));
+                infos.push(extra);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// One block with N transactions: N-1 and N+1 compression infos are rejected, N passes.
+    #[rstest::rstest]
+    #[case::short(-1)]
+    #[case::exact(0)]
+    #[case::long(1)]
+    fn compression_infos_must_match_tx_count(#[case] delta: isize) {
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/dogeos/next-message-index/6281971-19.json"
+        ))
+        .unwrap();
+        let txs = witness.transactions.len();
+        assert!(txs > 0);
+        let mut infos = honest_compression_infos(std::slice::from_ref(&witness));
+        resize_infos(&mut infos[0], delta);
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
+
+        let result = run(&[witness], chain_spec, infos);
+
+        if delta == 0 {
+            result.expect("matching compression infos must verify");
+        } else {
+            match result.expect_err("mismatched compression infos must be rejected") {
+                StatelessValidationError::CompressionInfosTxCountMismatch {
+                    block_number,
+                    txs: got_txs,
+                    infos,
+                } => {
+                    assert_eq!(block_number, 19);
+                    assert_eq!(got_txs, txs);
+                    assert_eq!(infos, txs.checked_add_signed(delta).unwrap());
+                }
+                other => panic!("expected tx count mismatch, got {other:?}"),
+            }
+        }
+    }
+
+    /// In a multi-block chunk where only one block's vector is wrong, that block is named.
+    #[rstest::rstest]
+    #[case::last_block_short(2, -1)]
+    #[case::middle_block_long(1, 1)]
+    #[case::first_block_short(0, -1)]
+    fn compression_infos_mismatch_names_the_offending_block(
+        #[case] index: usize,
+        #[case] delta: isize,
+    ) {
+        let witnesses = tsuki_empty_queue_witnesses();
+        let mut infos = honest_compression_infos(&witnesses);
+        resize_infos(&mut infos[index], delta);
+        let expected_block = witnesses[index].header.number;
+        let expected_txs = witnesses[index].transactions.len();
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
+
+        match run(&witnesses, chain_spec, infos).expect_err("mismatch must be rejected") {
+            StatelessValidationError::CompressionInfosTxCountMismatch {
+                block_number,
+                txs,
+                infos,
+            } => {
+                assert_eq!(block_number, expected_block);
+                assert_eq!(txs, expected_txs);
+                assert_eq!(infos, expected_txs.checked_add_signed(delta).unwrap());
+            }
+            other => panic!("expected tx count mismatch, got {other:?}"),
+        }
+    }
+
+    /// A block-count mismatch is a typed error, not a `zip_eq` panic.
+    #[rstest::rstest]
+    #[case::too_few(2)]
+    #[case::too_many(4)]
+    fn compression_infos_block_count_mismatch_is_an_error(#[case] vectors: usize) {
+        let witnesses = tsuki_empty_queue_witnesses();
+        let mut infos = honest_compression_infos(&witnesses);
+        infos.resize(vectors, Vec::new());
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
+
+        match run(&witnesses, chain_spec, infos).expect_err("mismatch must be rejected") {
+            StatelessValidationError::CompressionInfosBlockCountMismatch { blocks, infos } => {
+                assert_eq!(blocks, 3);
+                assert_eq!(infos, vectors);
+            }
+            other => panic!("expected block count mismatch, got {other:?}"),
+        }
+    }
+
+    /// A block with no transactions takes an empty vector, and rejects a non-empty one.
+    #[rstest::rstest]
+    #[case::empty(0)]
+    #[case::extra(1)]
+    fn compression_infos_for_empty_block(#[case] delta: isize) {
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../../testdata/scroll/feynman/534352-19604675.json"
+        ))
+        .unwrap();
+        assert!(witness.transactions.is_empty());
+        let mut infos = vec![Vec::new()];
+        resize_infos(&mut infos[0], delta);
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
+
+        let result = run(&[witness], chain_spec, infos);
+
+        if delta == 0 {
+            result.expect("an empty block with no compression infos must verify");
+        } else {
+            assert!(matches!(
+                result,
+                Err(StatelessValidationError::CompressionInfosTxCountMismatch {
+                    block_number: 19_604_675,
+                    txs: 0,
+                    infos: 1,
+                })
+            ));
+        }
+    }
+
     #[test]
     fn test_next_message_index_overflow() {
         let err = next_message_index_from_value(U256::from(u64::MAX) + U256::from(1_u8))

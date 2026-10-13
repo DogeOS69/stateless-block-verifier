@@ -66,6 +66,8 @@ pub fn run(
     if !witnesses.has_seq_state_root() {
         return Err(StatelessValidationError::InvalidAncestorChain);
     }
+    #[cfg(feature = "scroll")]
+    check_compression_infos(witnesses, &compression_infos)?;
 
     let pre_state_root = witnesses[0].prev_state_root;
     let post_state_root = witnesses.last().unwrap().header.state_root;
@@ -170,6 +172,36 @@ pub fn run(
         #[cfg(feature = "scroll")]
         next_message_index,
     })
+}
+
+/// Check that there is one compression info vector per block, and one compression info per
+/// transaction in each block.
+///
+/// The executor pairs each transaction with its compression info, so a vector of the wrong
+/// length must be rejected before execution rather than silently skipping transactions.
+#[cfg(feature = "scroll")]
+fn check_compression_infos(
+    witnesses: &[BlockWitness],
+    compression_infos: &[Vec<(U256, usize)>],
+) -> Result<(), StatelessValidationError> {
+    if compression_infos.len() != witnesses.len() {
+        return Err(
+            StatelessValidationError::CompressionInfosBlockCountMismatch {
+                blocks: witnesses.len(),
+                infos: compression_infos.len(),
+            },
+        );
+    }
+    for (witness, infos) in witnesses.iter().zip(compression_infos) {
+        if infos.len() != witness.transactions.len() {
+            return Err(StatelessValidationError::CompressionInfosTxCountMismatch {
+                block_number: witness.header.number,
+                txs: witness.transactions.len(),
+                infos: infos.len(),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "scroll")]

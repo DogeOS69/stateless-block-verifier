@@ -56,6 +56,28 @@ pub enum StatelessValidationError {
         expected: B256,
     },
 
+    /// The number of compression info vectors does not match the number of blocks.
+    #[cfg(feature = "scroll")]
+    #[error("compression infos count {infos} != block count {blocks}")]
+    CompressionInfosBlockCountMismatch {
+        /// The number of blocks in the witness.
+        blocks: usize,
+        /// The number of compression info vectors.
+        infos: usize,
+    },
+
+    /// The number of compression infos for a block does not match its transaction count.
+    #[cfg(feature = "scroll")]
+    #[error("block {block_number}: compression infos count {infos} != tx count {txs}")]
+    CompressionInfosTxCountMismatch {
+        /// The number of the block whose compression infos are mismatched.
+        block_number: u64,
+        /// The number of transactions in the block.
+        txs: usize,
+        /// The number of compression infos supplied for the block.
+        infos: usize,
+    },
+
     /// Errors related to signature recovery and verification
     #[error("signer recovery failed")]
     SignerRecovery,
