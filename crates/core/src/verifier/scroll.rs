@@ -316,50 +316,31 @@ mod tests {
         if delta == 0 {
             result.expect("matching compression infos must verify");
         } else {
-            match result.expect_err("mismatched compression infos must be rejected") {
-                StatelessValidationError::CompressionInfosTxCountMismatch {
-                    block_number,
-                    txs: got_txs,
-                    infos,
-                } => {
-                    assert_eq!(block_number, 19);
-                    assert_eq!(got_txs, txs);
-                    assert_eq!(infos, txs.checked_add_signed(delta).unwrap());
-                }
-                other => panic!("expected tx count mismatch, got {other:?}"),
-            }
+            assert!(matches!(
+                result,
+                Err(StatelessValidationError::InvalidCompressionInfos)
+            ));
         }
     }
 
-    /// In a multi-block chunk where only one block's vector is wrong, that block is named.
     #[rstest::rstest]
     #[case::last_block_short(2, -1)]
     #[case::middle_block_long(1, 1)]
     #[case::first_block_short(0, -1)]
-    fn compression_infos_mismatch_names_the_offending_block(
+    fn compression_infos_mismatch_in_any_block_is_rejected(
         #[case] index: usize,
         #[case] delta: isize,
     ) {
         let witnesses = tsuki_empty_queue_witnesses();
         let mut infos = honest_compression_infos(&witnesses);
         resize_infos(&mut infos[index], delta);
-        let expected_block = witnesses[index].header.number;
-        let expected_txs = witnesses[index].transactions.len();
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
 
-        match run(&witnesses, chain_spec, infos).expect_err("mismatch must be rejected") {
-            StatelessValidationError::CompressionInfosTxCountMismatch {
-                block_number,
-                txs,
-                infos,
-            } => {
-                assert_eq!(block_number, expected_block);
-                assert_eq!(txs, expected_txs);
-                assert_eq!(infos, expected_txs.checked_add_signed(delta).unwrap());
-            }
-            other => panic!("expected tx count mismatch, got {other:?}"),
-        }
+        assert!(matches!(
+            run(&witnesses, chain_spec, infos),
+            Err(StatelessValidationError::InvalidCompressionInfos)
+        ));
     }
 
     /// A block-count mismatch is a typed error, not a `zip_eq` panic.
@@ -373,13 +354,10 @@ mod tests {
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
 
-        match run(&witnesses, chain_spec, infos).expect_err("mismatch must be rejected") {
-            StatelessValidationError::CompressionInfosBlockCountMismatch { blocks, infos } => {
-                assert_eq!(blocks, 3);
-                assert_eq!(infos, vectors);
-            }
-            other => panic!("expected block count mismatch, got {other:?}"),
-        }
+        assert!(matches!(
+            run(&witnesses, chain_spec, infos),
+            Err(StatelessValidationError::InvalidCompressionInfos)
+        ));
     }
 
     /// A block with no transactions takes an empty vector, and rejects a non-empty one.
@@ -404,11 +382,7 @@ mod tests {
         } else {
             assert!(matches!(
                 result,
-                Err(StatelessValidationError::CompressionInfosTxCountMismatch {
-                    block_number: 19_604_675,
-                    txs: 0,
-                    infos: 1,
-                })
+                Err(StatelessValidationError::InvalidCompressionInfos)
             ));
         }
     }

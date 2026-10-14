@@ -67,7 +67,14 @@ pub fn run(
         return Err(StatelessValidationError::InvalidAncestorChain);
     }
     #[cfg(feature = "scroll")]
-    check_compression_infos(witnesses, &compression_infos)?;
+    if compression_infos.len() != witnesses.len()
+        || !witnesses
+            .iter()
+            .zip(&compression_infos)
+            .all(|(witness, infos)| infos.len() == witness.transactions.len())
+    {
+        return Err(StatelessValidationError::InvalidCompressionInfos);
+    }
 
     let pre_state_root = witnesses[0].prev_state_root;
     let post_state_root = witnesses.last().unwrap().header.state_root;
@@ -174,40 +181,6 @@ pub fn run(
     })
 }
 
-/// Check that there is one compression info vector per block, and one compression info per
-/// transaction in each block.
-///
-/// The executor pairs each transaction with its compression info. The executor also rejects a
-/// count mismatch; this check is defence in depth, and fails before any execution with an error
-/// that names the block.
-///
-/// Only the counts are checked here. The ratio and size values themselves are bound only by the
-/// post-state root comparison.
-#[cfg(feature = "scroll")]
-fn check_compression_infos(
-    witnesses: &[BlockWitness],
-    compression_infos: &[Vec<(U256, usize)>],
-) -> Result<(), StatelessValidationError> {
-    if compression_infos.len() != witnesses.len() {
-        return Err(
-            StatelessValidationError::CompressionInfosBlockCountMismatch {
-                blocks: witnesses.len(),
-                infos: compression_infos.len(),
-            },
-        );
-    }
-    for (witness, infos) in witnesses.iter().zip(compression_infos) {
-        if infos.len() != witness.transactions.len() {
-            return Err(StatelessValidationError::CompressionInfosTxCountMismatch {
-                block_number: witness.header.number,
-                txs: witness.transactions.len(),
-                infos: infos.len(),
-            });
-        }
-    }
-    Ok(())
-}
-
 #[cfg(feature = "scroll")]
 fn map_l2_message_queue_info_error(
     block_number: u64,
@@ -250,25 +223,15 @@ mod tests {
         assert!(txs > 0, "fixture's second block must have transactions");
 
         for infos in [placeholder(txs - 1), placeholder(txs + 1)] {
-            let got = infos.len();
             let all = vec![placeholder(witnesses[0].transactions.len()), infos];
             assert!(matches!(
                 run(&witnesses, chain_spec.clone(), all),
-                Err(StatelessValidationError::CompressionInfosTxCountMismatch {
-                    block_number: 12,
-                    txs: t,
-                    infos: i,
-                }) if t == txs && i == got
+                Err(StatelessValidationError::InvalidCompressionInfos)
             ));
         }
         assert!(matches!(
             run(&witnesses, chain_spec, vec![placeholder(0)]),
-            Err(
-                StatelessValidationError::CompressionInfosBlockCountMismatch {
-                    blocks: 2,
-                    infos: 1,
-                }
-            )
+            Err(StatelessValidationError::InvalidCompressionInfos)
         ));
     }
 
