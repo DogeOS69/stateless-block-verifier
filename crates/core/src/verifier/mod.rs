@@ -177,8 +177,12 @@ pub fn run(
 /// Check that there is one compression info vector per block, and one compression info per
 /// transaction in each block.
 ///
-/// The executor pairs each transaction with its compression info, so a vector of the wrong
-/// length must be rejected before execution rather than silently skipping transactions.
+/// The executor pairs each transaction with its compression info. The executor also rejects a
+/// count mismatch; this check is defence in depth, and fails before any execution with an error
+/// that names the block.
+///
+/// Only the counts are checked here. The ratio and size values themselves are bound only by the
+/// post-state root comparison.
 #[cfg(feature = "scroll")]
 fn check_compression_infos(
     witnesses: &[BlockWitness],
@@ -243,6 +247,7 @@ mod tests {
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
         let placeholder = |n: usize| vec![(U256::ZERO, 0); n];
         let txs = witnesses[1].transactions.len();
+        assert!(txs > 0, "fixture's second block must have transactions");
 
         for infos in [placeholder(txs - 1), placeholder(txs + 1)] {
             let got = infos.len();
