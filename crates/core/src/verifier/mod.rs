@@ -66,6 +66,15 @@ pub fn run(
     if !witnesses.has_seq_state_root() {
         return Err(StatelessValidationError::InvalidAncestorChain);
     }
+    #[cfg(feature = "scroll")]
+    if compression_infos.len() != witnesses.len()
+        || !witnesses
+            .iter()
+            .zip(&compression_infos)
+            .all(|(witness, infos)| infos.len() == witness.transactions.len())
+    {
+        return Err(StatelessValidationError::InvalidCompressionInfos);
+    }
 
     let pre_state_root = witnesses[0].prev_state_root;
     let post_state_root = witnesses.last().unwrap().header.state_root;
@@ -188,6 +197,43 @@ mod tests {
     use super::*;
     use sbv_primitives::types::reth::evm::execute::ProviderError;
     use std::io;
+
+    /// Runs under the guest feature set (`scroll` without `scroll-compress-info`): mismatched
+    /// compression infos are rejected before execution, so placeholder values suffice.
+    #[test]
+    fn compression_info_count_mismatches_are_rejected_without_compress_info_feature() {
+        use sbv_primitives::{
+            chainspec::{Chain, build_chain_spec_force_hardfork},
+            hardforks::Hardfork,
+        };
+
+        let witnesses = [
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/11.json"
+            ),
+            include_str!(
+                "../../../../testdata/dogeos/next-message-index/tsuki-empty-queue/12.json"
+            ),
+        ]
+        .map(|json| serde_json::from_str::<BlockWitness>(json).unwrap());
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
+        let placeholder = |n: usize| vec![(U256::ZERO, 0); n];
+        let txs = witnesses[1].transactions.len();
+        assert!(txs > 0, "fixture's second block must have transactions");
+
+        for infos in [placeholder(txs - 1), placeholder(txs + 1)] {
+            let all = vec![placeholder(witnesses[0].transactions.len()), infos];
+            assert!(matches!(
+                run(&witnesses, chain_spec.clone(), all),
+                Err(StatelessValidationError::InvalidCompressionInfos)
+            ));
+        }
+        assert!(matches!(
+            run(&witnesses, chain_spec, vec![placeholder(0)]),
+            Err(StatelessValidationError::InvalidCompressionInfos)
+        ));
+    }
 
     #[test]
     fn queue_info_errors_are_not_classified_as_execution_failures() {

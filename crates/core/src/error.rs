@@ -56,6 +56,11 @@ pub enum StatelessValidationError {
         expected: B256,
     },
 
+    /// The number of compression infos for a block does not match its transaction count.
+    #[cfg(feature = "scroll")]
+    #[error("invalid compression infos")]
+    InvalidCompressionInfos,
+
     /// Errors related to signature recovery and verification
     #[error("signer recovery failed")]
     SignerRecovery,
