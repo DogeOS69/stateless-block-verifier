@@ -91,7 +91,9 @@ pub mod reth {
         pub use reth_consensus::*;
 
         #[cfg(feature = "scroll-reth-consensus-types")]
-        pub use dogeos_reth_consensus::{DogeosConsensus, DogeosConsensusError};
+        pub use dogeos_reth_consensus::{
+            DogeosConsensus, DogeosConsensusError, validate_gas_limit_against_parent,
+        };
     }
 
     /// Re-export types from `reth-primitives-types`

@@ -101,7 +101,12 @@ scroll-hardforks = [
   "dogeos-hardforks/serde",
 ]
 scroll-network-types = ["scroll", "network-types", "dep:dogeos-rpc-types"]
-scroll-reth-consensus-types = ["scroll", "reth-consensus-types", "dep:dogeos-reth-consensus"]
+# PI-only consumers can use consensus helpers without selecting Scroll execution types.
+scroll-reth-consensus-types = [
+  "reth-consensus-types",
+  "dep:dogeos-reth-consensus",
+  "dogeos-reth-primitives/serde",
+]
 # Do not enable `dogeos-reth-evm/std` here yet. The zkVM target supports Rust's standard library,
 # but `reth-primitives-traits` 0.1.1 folds `quanta` into its `std` feature. `quanta` 0.12.6 treats
 # every non-Windows, non-Wasm target (including `target_os = "zkvm"`) as Unix and requires libc's
