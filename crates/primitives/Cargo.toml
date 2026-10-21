@@ -28,6 +28,7 @@ alloy-primitives.workspace = true
 
 revm = { workspace = true, optional = true }
 revm-scroll = { workspace = true, optional = true }
+reth-consensus = { workspace = true, optional = true }
 reth-chainspec = { workspace = true, optional = true }
 reth-evm = { workspace = true, optional = true }
 reth-evm-ethereum = { workspace = true, optional = true }
@@ -35,6 +36,7 @@ reth-ethereum-forks = { workspace = true, optional = true }
 reth-execution-types = { workspace = true, optional = true }
 reth-ethereum-primitives = { workspace = true, features = ["serde"] }
 reth-primitives-traits = { workspace = true, features = ["serde"] }
+dogeos-reth-consensus = { workspace = true, optional = true }
 dogeos-chainspec = { workspace = true, optional = true }
 dogeos-hardforks = { workspace = true, optional = true }
 dogeos-protocol-types = { workspace = true, optional = true }
@@ -58,6 +60,7 @@ chainspec = ["dep:reth-chainspec", "hardforks"]
 evm-types = ["dep:alloy-evm"]
 network-types = ["dep:alloy-network"]
 hardforks = ["dep:reth-ethereum-forks"]
+reth-consensus-types = ["dep:reth-consensus"]
 reth-evm-types = ["dep:reth-evm", "dep:reth-evm-ethereum"]
 reth-execution-types = ["dep:reth-execution-types"]
 revm-types = ["dep:revm"]
@@ -66,6 +69,7 @@ ethereum-all = [
   "evm-types",
   "network-types",
   "hardforks",
+  "reth-consensus-types",
   "reth-evm-types",
   "reth-execution-types",
   "revm-types",
@@ -97,6 +101,12 @@ scroll-hardforks = [
   "dogeos-hardforks/serde",
 ]
 scroll-network-types = ["scroll", "network-types", "dep:dogeos-rpc-types"]
+# PI-only consumers can use consensus helpers without selecting Scroll execution types.
+scroll-reth-consensus-types = [
+  "reth-consensus-types",
+  "dep:dogeos-reth-consensus",
+  "dogeos-reth-primitives/serde",
+]
 # Do not enable `dogeos-reth-evm/std` here yet. The zkVM target supports Rust's standard library,
 # but `reth-primitives-traits` 0.1.1 folds `quanta` into its `std` feature. `quanta` 0.12.6 treats
 # every non-Windows, non-Wasm target (including `target_os = "zkvm"`) as Unix and requires libc's
@@ -121,6 +131,7 @@ scroll-all = [
   "scroll-evm-types",
   "scroll-hardforks",
   "scroll-network-types",
+  "scroll-reth-consensus-types",
   "scroll-reth-evm-types",
   "scroll-revm-types",
 ]

@@ -85,9 +85,20 @@ pub mod revm {
 
 /// re-export types from reth_primitives
 pub mod reth {
+    /// Re-export the consensus traits and the DogeOS validator.
+    #[cfg(feature = "reth-consensus-types")]
+    pub mod consensus {
+        pub use reth_consensus::*;
+
+        #[cfg(feature = "scroll-reth-consensus-types")]
+        pub use dogeos_reth_consensus::{
+            DogeosConsensus, DogeosConsensusError, validate_gas_limit_against_parent,
+        };
+    }
+
     /// Re-export types from `reth-primitives-types`
     pub mod primitives {
-        pub use reth_primitives_traits::{RecoveredBlock, SealedBlock};
+        pub use reth_primitives_traits::{RecoveredBlock, SealedBlock, SealedHeader};
 
         #[cfg(feature = "scroll")]
         pub use dogeos_reth_primitives::{
