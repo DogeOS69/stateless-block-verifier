@@ -25,32 +25,43 @@ pub struct RunFileCommand {
     /// and the chunk's previous proof endpoint both come from this header. The file takes either
     /// the shape a witness's own `header` object has, so a witness's header can be copied
     /// straight out of it, or `eth_getBlockByNumber`'s camelCase shape.
+    ///
+    /// It anchors the lowest witness given, ordered by chain id and then by block number, so pass
+    /// it with the witnesses of one chain rather than with a glob over several.
     #[arg(long)]
     parent_header: Option<PathBuf>,
 }
 
-/// A trusted parent header read from a file.
-///
-/// A witness serialises its header through `serde_bincode_compat`, whose field names are the
-/// struct's own (`parent_hash`, `base_fee_per_gas`, …), while an RPC block header uses JSON-RPC's
-/// camelCase (`parentHash`, `baseFeePerGas`, …). Both are accepted: the only way to anchor a chunk
-/// from the command line should not depend on which of the two the user had to hand.
+/// A trusted parent header in the shape a witness's own `header` object has: the field names of
+/// the struct itself (`parent_hash`, `base_fee_per_gas`, …), as `serde_bincode_compat` writes them.
 #[serde_with::serde_as]
 #[derive(serde::Deserialize)]
-#[serde(untagged)]
-enum ParentHeaderFile {
-    Witness(
-        #[serde_as(as = "sbv::primitives::types::consensus::serde_bincode_compat::Header")] Header,
-    ),
-    Rpc(Header),
-}
+#[serde(transparent)]
+struct WitnessShapedHeader(
+    #[serde_as(as = "sbv::primitives::types::consensus::serde_bincode_compat::Header")] Header,
+);
 
-impl From<ParentHeaderFile> for Header {
-    fn from(file: ParentHeaderFile) -> Self {
-        match file {
-            ParentHeaderFile::Witness(header) | ParentHeaderFile::Rpc(header) => header,
+/// Reads a trusted parent header, accepting either shape a user is likely to have to hand.
+///
+/// A witness writes its header with the struct's own field names; `eth_getBlockByNumber` writes
+/// JSON-RPC's camelCase (`parentHash`, `baseFeePerGas`, …). Both are tried, and a file that is
+/// neither reports what each attempt made of it: an untagged enum would collapse both paths into
+/// "data did not match any variant", which says nothing about the field that is wrong.
+fn parse_parent_header(json: &[u8]) -> eyre::Result<Header> {
+    let witness_error = {
+        let jd = &mut serde_json::Deserializer::from_slice(json);
+        match serde_path_to_error::deserialize::<_, WitnessShapedHeader>(jd) {
+            Ok(header) => return Ok(header.0),
+            Err(error) => error,
         }
-    }
+    };
+    let jd = &mut serde_json::Deserializer::from_slice(json);
+    serde_path_to_error::deserialize::<_, Header>(jd).map_err(|rpc_error| {
+        eyre::eyre!(
+            "the parent header is neither a witness header ({witness_error}) nor an RPC block \
+             header ({rpc_error})"
+        )
+    })
 }
 
 impl RunFileCommand {
@@ -103,9 +114,7 @@ fn read_witness(path: &Path) -> eyre::Result<BlockWitness> {
 }
 
 fn read_header(path: &Path) -> eyre::Result<Header> {
-    let header = std::fs::File::open(path)?;
-    let jd = &mut serde_json::Deserializer::from_reader(&header);
-    Ok(serde_path_to_error::deserialize::<_, ParentHeaderFile>(jd)?.into())
+    parse_parent_header(&std::fs::read(path)?)
 }
 
 #[cfg_attr(feature = "dev", tracing::instrument(skip_all, fields(path = %path.display()), err))]
@@ -182,9 +191,8 @@ mod tests {
             "the witness shape is the struct's own field names"
         );
 
-        let header: Header = serde_json::from_value::<ParentHeaderFile>(witness_shape.clone())
-            .expect("the witness shape must parse")
-            .into();
+        let header = parse_parent_header(&serde_json::to_vec(witness_shape).unwrap())
+            .expect("the witness shape must parse");
         assert_eq!(header.number, 19_604_670);
         assert!(header.base_fee_per_gas.is_some());
 
@@ -194,9 +202,23 @@ mod tests {
             rpc_shape.get("parentHash").is_some(),
             "alloy's own encoding is camelCase"
         );
-        let from_rpc: Header = serde_json::from_value::<ParentHeaderFile>(rpc_shape)
-            .expect("the RPC shape must parse")
-            .into();
-        assert_eq!(from_rpc, header);
+        assert_eq!(
+            parse_parent_header(&serde_json::to_vec(&rpc_shape).unwrap())
+                .expect("the RPC shape must parse"),
+            header
+        );
+    }
+
+    /// A file that is neither shape has to say what each attempt made of it, so the user knows
+    /// which field to look at rather than only that nothing matched.
+    #[test]
+    fn a_parent_header_file_of_neither_shape_reports_both_attempts() {
+        let error = parse_parent_header(br#"{"parent_hash": "not a hash"}"#)
+            .expect_err("neither shape accepts this")
+            .to_string();
+
+        assert!(error.contains("witness header"), "{error}");
+        assert!(error.contains("RPC block header"), "{error}");
+        assert!(error.contains("parent_hash"), "{error}");
     }
 }

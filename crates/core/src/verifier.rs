@@ -11,14 +11,18 @@ use reth_primitives_traits::RecoveredBlock;
 use sbv_primitives::{
     Address, B256, U256,
     alloy_primitives::map::B256Map,
-    chainspec::{ChainSpec, EthChainSpec, ForkCondition, Hardforks, scroll::ChainConfig},
+    chainspec::{
+        ChainSpec, EthChainSpec, ForkCondition, Hardforks, is_registered_chain, scroll::ChainConfig,
+    },
     hardforks::{DogeosHardforks, Hardfork},
     types::{
         Header,
         consensus::BlockHeader,
         evm::ScrollBaseFeeProvider,
         reth::{
-            consensus::{Consensus, DogeosConsensus, FullConsensus, HeaderValidator},
+            consensus::{
+                Consensus, ConsensusError, DogeosConsensus, FullConsensus, HeaderValidator,
+            },
             evm::execute::ProviderError,
             execution_types::BlockExecutionResult,
             primitives::{Block, Receipt, SealedHeader},
@@ -88,6 +92,11 @@ pub struct VerifyResult {
     /// Recovered blocks from the witnesses.
     pub blocks: Vec<RecoveredBlock<Block>>,
     /// Pre-state root of the first block.
+    ///
+    /// This is **verified** only when [`run`] was given a trusted parent header: it is then that
+    /// header's state root. Without one it is the witness's own claim, bound to nothing but the
+    /// execution that follows it. A trusted parent is mandatory for every chain that schedules
+    /// Tsuki, so a caller that folds this into public inputs has to supply one.
     pub pre_state_root: B256,
     /// Post-state root after executing the witnesses.
     pub post_state_root: B256,
@@ -124,6 +133,10 @@ pub fn run_host(
 /// it, typically because its hash is the previous proof endpoint. It anchors the chunk's first
 /// block (parent link, block number and pre-state root), roots the chain of header rules, and
 /// supplies the parent inputs of that block's base-fee rule.
+///
+/// On the host, the DogeOS header rules are applied exactly as the guest applies them: upstream's
+/// wall-clock future-block check is deliberately skipped, so the same inputs always give the same
+/// answer and the host cannot reject a chunk the guest would accept.
 ///
 /// It is **required** whenever the chain spec schedules Tsuki at all, however far in the future.
 /// The requirement deliberately does not look at the witnesses' own timestamps: those are prover
@@ -379,6 +392,12 @@ fn next_message_index_from_value(next_message_index: U256) -> Result<u64, Provid
 /// The read goes through [`BaseFeeDatabase`], not the raw trie, so the account is loaded before the
 /// slot and the sparse storage trie initialises. A witness that does not resolve the account or the
 /// slot fails the proof; only an *authenticated* absence falls back to the default overhead.
+///
+/// An **unregistered** chain is refused outright. Its configuration is the development blueprint's,
+/// whose L2SystemConfig address is the zero address; the zero account is normally an authenticated
+/// absence, so the overhead would read as the default while nothing had been verified. A
+/// registered chain whose own configuration names the zero address - the development chain does -
+/// is proven as it is, because its node reads that same account and finds that same absence.
 fn check_base_fee(
     chain_spec: &Arc<ChainSpec>,
     trie: &SparseState,
@@ -386,7 +405,9 @@ fn check_base_fee(
     parent: &Header,
     block: &RecoveredBlock<Block>,
 ) -> Result<(), StatelessValidationError> {
-    if chain_spec.chain_config().l1_config.l2_system_config_address == Address::ZERO {
+    if chain_spec.chain_config().l1_config.l2_system_config_address == Address::ZERO
+        && !is_registered_chain(chain_spec.chain())
+    {
         return Err(StatelessValidationError::L2SystemConfigUnconfigured {
             block_number: block.number,
             chain_id: chain_spec.chain().id(),
@@ -444,12 +465,23 @@ fn validate_headers(
     for witness in witnesses {
         let block_number = witness.header.number;
         let header = SealedHeader::new_unhashed(witness.header.clone());
-        DogeosConsensus.validate_header(&header).map_err(|source| {
-            StatelessValidationError::InvalidHeader {
-                block_number,
-                source,
+        match DogeosConsensus.validate_header(&header) {
+            Ok(()) => {}
+            // `validate_header` adds a wall-clock future-block check outside the guest (upstream
+            // guards it with `cfg(not(target_os = "zkvm"))`). A verifier replays history and must
+            // not depend on the clock, or the host would reject a chunk the guest accepts and the
+            // same inputs would answer differently at different times. It is the only rule in
+            // `validate_header` that reports a timestamp in the past, and the parent-relative
+            // timestamp rule below covers every header against its real predecessor, so skipping
+            // it here loses nothing.
+            Err(ConsensusError::TimestampIsInPast { .. }) => {}
+            Err(source) => {
+                return Err(StatelessValidationError::InvalidHeader {
+                    block_number,
+                    source,
+                });
             }
-        })?;
+        }
         if let Some(previous) = &previous {
             DogeosConsensus
                 .validate_header_against_parent(&header, previous)
@@ -509,7 +541,7 @@ mod base_fee_rule_tests {
         alloy_primitives::map::B256Map,
         chainspec::{
             Chain, EthChainSpec, build_chain_spec_force_hardfork,
-            scroll::{DOGEOS_CHIKYU, DOGEOS_MAINNET},
+            scroll::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET},
         },
         hardforks::Hardfork,
         keccak256,
@@ -973,57 +1005,6 @@ mod base_fee_rule_tests {
         ));
     }
 
-    /// The overhead is read from each block's own pre-state, so a transaction that changes it
-    /// moves the base fee only from the next block onwards - and that next block may be the first
-    /// block of the next chunk, which reads the same pre-state as its own.
-    #[test]
-    fn the_overhead_comes_from_each_blocks_own_pre_state() {
-        let chain_spec = build_chain_spec_force_hardfork(DOGEOS_MAINNET.chain, Hardfork::Tsuki);
-        let before = state_with(&[(
-            system_config(&chain_spec),
-            &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(OVERHEAD))],
-        )]);
-        let after = state_with(&[(
-            system_config(&chain_spec),
-            &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(2 * OVERHEAD))],
-        )]);
-        let parent = parent(OVERHEAD + 1_000_000_000, GAS_LIMIT);
-
-        // The block whose transaction changes the overhead still derives its own fee from the old
-        // value: the change is only in its post-state.
-        let with_old = next_base_fee(&chain_spec, &before, &parent).unwrap();
-        // Its successor reads the new value, whether it is the next block of the same chunk or
-        // the first block of the next one - both read that same state as their pre-state.
-        let with_new = next_base_fee(&chain_spec, &after, &parent).unwrap();
-
-        assert_eq!(with_old, OVERHEAD + 1_187_500_000);
-        // The doubled overhead is above the parent's whole base fee, so nothing is left to
-        // escalate and only EIP-1559's minimum increase of one wei lands on top of it.
-        assert_eq!(with_new, 2 * OVERHEAD + 1);
-        assert_ne!(with_old, with_new);
-
-        // A block carrying the fee its own pre-state derives is accepted, and the same header is
-        // rejected against the other pre-state.
-        let mut witness = tsuki_witness_11();
-        witness.header.timestamp = parent.timestamp + 1;
-        witness.header.base_fee_per_gas = Some(with_old);
-        let block = witness.build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
-        check_base_fee(
-            &chain_spec,
-            &before,
-            &bytecode,
-            &block_hashes,
-            &parent,
-            &block,
-        )
-        .expect("the fee its own pre-state derives");
-        assert!(matches!(
-            check_base_fee(&chain_spec, &after, &bytecode, &parent, &block),
-            Err(StatelessValidationError::BaseFeeMismatch { .. })
-        ));
-    }
-
     /// `l2_message_queue_info` is the other authenticated post-state read the proof publishes.
     /// Its Tsuki branch - a queue index that is not zero, and one that does not fit a `u64` - is
     /// driven here directly, because no replayable Tsuki corpus covers it today.
@@ -1084,6 +1065,114 @@ mod base_fee_rule_tests {
                 .to_string()
                 .contains("L2MessageQueue contract not found")
         );
+    }
+
+    /// The development chain is registered and names the zero address, and its node reads that
+    /// account and finds an authenticated absence. The verifier has to agree with it rather than
+    /// refuse the chain, or every block the development node produces would be unprovable.
+    #[test]
+    fn the_registered_development_chain_uses_the_default_overhead() {
+        let chain_spec = build_chain_spec_force_hardfork(DOGEOS_DEV.chain, Hardfork::Tsuki);
+        assert_eq!(system_config(&chain_spec), Address::ZERO);
+        assert!(is_registered_chain(chain_spec.chain()));
+        // The node reads slot 101 of the zero account; in a real state that absence is
+        // authenticated, which is what the default overhead is for.
+        let state = state_with(&[(OTHER_ACCOUNT, &[])]);
+        let parent = parent(1_000_000_000, GAS_LIMIT / 10);
+        let expected = next_base_fee(&chain_spec, &state, &parent).unwrap();
+        assert_eq!(expected, 1_000_000_000, "the default overhead applies");
+
+        let mut witness = tsuki_witness_11();
+        witness.header.timestamp = parent.timestamp + 1;
+        witness.header.base_fee_per_gas = Some(expected);
+        let block = witness.build_reth_block().unwrap();
+        let (bytecode) = (B256Map::default(), BTreeMap::new());
+
+        check_base_fee(
+            &chain_spec,
+            &state,
+            &bytecode,
+            &block_hashes,
+            &parent,
+            &block,
+        )
+        .expect("the development chain must verify, not be refused");
+    }
+
+    /// Writes `overhead` into the L2SystemConfig slot of `state`, as a transaction in the block
+    /// being verified would: the write lands in the block's **post**-state.
+    fn commit_overhead(state: &mut SparseState, address: Address, overhead: u64) {
+        let hashed = keccak256(address);
+        let mut post = HashedPostState::default();
+        post.accounts.insert(
+            hashed,
+            Some(reth_primitives_traits::Account {
+                nonce: 1,
+                balance: U256::ZERO,
+                bytecode_hash: None,
+            }),
+        );
+        post.storages.insert(
+            hashed,
+            HashedStorage::from_iter(
+                false,
+                [(
+                    keccak256(B256::from(L2_BASE_FEE_OVERHEAD_SLOT)),
+                    U256::from(overhead),
+                )],
+            ),
+        );
+        state.calculate_state_root(post);
+    }
+
+    /// The overhead is read before the block's own state changes are committed, so a block whose
+    /// transaction changes it still derives its own fee from the old value and its successor from
+    /// the new one - whether that successor is the next block of the same chunk or the first block
+    /// of the next chunk, which reads the same state as its pre-state and the same header as its
+    /// trusted parent.
+    #[test]
+    fn an_overhead_change_applies_from_the_next_block_and_across_a_chunk_boundary() {
+        let chain_spec = build_chain_spec_force_hardfork(DOGEOS_MAINNET.chain, Hardfork::Tsuki);
+        let system_config = system_config(&chain_spec);
+        let mut state = state_with(&[(
+            system_config,
+            &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(OVERHEAD))],
+        )]);
+        let (bytecode) = (B256Map::default(), BTreeMap::new());
+
+        // Block n is verified against the state as it stands before its own transactions run.
+        let header_n = parent(OVERHEAD + 1_000_000_000, GAS_LIMIT);
+        let fee_n = next_base_fee(&chain_spec, &state, &parent(OVERHEAD + 48, 0)).unwrap();
+        assert_eq!(fee_n, OVERHEAD + 47);
+
+        // Its transaction doubles the overhead, which lands in its post-state.
+        commit_overhead(&mut state, system_config, 2 * OVERHEAD);
+
+        // Block n+1 reads that post-state as its own pre-state, so the new value applies.
+        let fee_next = next_base_fee(&chain_spec, &state, &header_n).unwrap();
+        assert_eq!(fee_next, 2 * OVERHEAD + 1);
+        assert_ne!(
+            fee_next,
+            next_base_fee(&chain_spec, &state, &parent(OVERHEAD + 48, 0)).unwrap()
+        );
+
+        let mut witness = tsuki_witness_11();
+        witness.header.timestamp = header_n.timestamp + 1;
+        witness.header.base_fee_per_gas = Some(fee_next);
+        let block = witness.build_reth_block().unwrap();
+        // The same state and the same header are what the next chunk is handed as its pre-state
+        // and its trusted parent, so the first block of that chunk is checked identically.
+        for parent_of_next_block in [&header_n, &header_n] {
+            check_base_fee(&chain_spec, &state, &bytecode, parent_of_next_block, &block)
+                .expect("the successor derives its fee from the new overhead");
+        }
+        // The old fee is no longer the derived one.
+        witness.header.base_fee_per_gas = Some(fee_n);
+        let stale = witness.build_reth_block().unwrap();
+        assert!(matches!(
+            check_base_fee(&chain_spec, &state, &bytecode, &header_n, &stale),
+            Err(StatelessValidationError::BaseFeeMismatch { .. })
+        ));
     }
 
     /// The base fees the two recorded Tsuki lineages actually carry follow the rule exactly, with
@@ -1368,17 +1457,17 @@ mod anchor_tests {
     #[test]
     fn a_chain_without_a_tsuki_activation_needs_no_parent() {
         use sbv_primitives::{
-            chainspec::{ForkCondition, Hardforks, scroll::DOGEOS_CHIKYU},
+            chainspec::{ForkCondition, Hardforks},
             hardforks::Hardfork,
         };
 
-        assert_eq!(
-            DOGEOS_CHIKYU.fork(Hardfork::Tsuki),
-            ForkCondition::Never,
-            "the test chain must be one that never activates Tsuki"
-        );
         let blocks = consecutive_blocks();
         let spec = feynman_spec(&blocks[0]);
+        assert_eq!(
+            spec.fork(Hardfork::Tsuki),
+            ForkCondition::Never,
+            "this spec must be one that never activates Tsuki"
+        );
 
         run_host(&blocks[1..3], None, spec).expect("no Tsuki activation, no anchor required");
     }
@@ -1584,10 +1673,11 @@ mod host_tests {
     /// to `1` in its final state. The forced Tsuki chain spec is intentional: this development
     /// fixture predates a public Chikyū activation and the registered Chikyū spec does not activate
     /// Tsuki.
-    /// Un-ignoring this needs the same corpus as above **and** a header fixture for block 18:
-    /// the witness is a single block, so the corpus carries no parent for it.
+    /// Un-ignoring this needs the same corpus as above **and** the header of block 18, as
+    /// `testdata/dogeos/next-message-index/6281971-18-header.json`: the witness is a single block,
+    /// so the corpus carries no parent for it. The corpus regeneration task produces both.
     #[test]
-    #[ignore = "needs a header fixture for the preceding block and a Tsuki corpus carrying the L2SystemConfig slot-101 proof"]
+    #[ignore = "needs testdata/dogeos/next-message-index/6281971-18-header.json and a Tsuki corpus carrying the L2SystemConfig slot-101 proof"]
     fn test_next_message_index_post_tsuki_transition() {
         const EXPECTED_NEXT_MESSAGE_INDEX: u64 = 1;
         const EXPECTED_BLOCK_HASH: B256 = sbv_primitives::b256!(

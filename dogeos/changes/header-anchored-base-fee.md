@@ -49,7 +49,11 @@ unchecked is named under "Residue" below.
   after it (gas used, receipts root, logs bloom).
 - `build_chain_spec_force_hardfork` starts from the specification of the chain
   being proven instead of always from the development chain, so the
-  L2SystemConfig address and the EIP-1559 parameters match that chain.
+  L2SystemConfig address and the EIP-1559 parameters match that chain. It
+  refuses to build for a chain whose genesis declares `tsukiFeeParamsTime`: the
+  execution client reads the fee schedule from the genesis document, so a forced
+  schedule would either ignore the declaration — diverging from the node for
+  exactly the chains that make one — or override the fork the caller asked for.
 - `get_chain_spec` resolves each registered chain by the chain id its own
   genesis document declares. It previously mapped DogeOS mainnet to chain id
   `0xff`, which the frozen mainnet genesis document does not use.
@@ -74,12 +78,13 @@ Three cases, deliberately distinct:
 - the witness does not resolve the account or the slot: the sparse trie aborts
   on unresolved node access and the proof fails. It must never fall back to the
   default, because the prover chooses what the witness contains;
-- the chain's configuration names **no** L2SystemConfig contract (the zero
-  address): there is no authenticated source for the overhead at all. The zero
-  address is normally an authenticated absence, which would read as the default
-  overhead while having verified nothing, so this is refused rather than
-  defaulted. It is reachable for an unregistered chain id, which keeps the
-  development blueprint's zero address.
+- the chain is **not registered** in this build: its configuration is the
+  development blueprint's, whose L2SystemConfig address is the zero address.
+  The zero account is normally an authenticated absence, which would read as the
+  default overhead while nothing had been verified, so an unregistered chain is
+  refused rather than defaulted. A *registered* chain whose own configuration
+  names the zero address — the development chain does — is proven as it is,
+  because its node reads that same account and finds that same absence.
 
 ## Residue: what the block hash commits to and the verifier does not check
 
@@ -89,8 +94,11 @@ elsewhere: `state_root` (checked against execution), `transactions_root`,
 `receipts_root` and `logs_bloom` (checked against the body and the receipts),
 `gas_used` and `base_fee_per_gas` (checked by their own rules), `parent_hash`
 and `number` (checked against the parent). A timestamp that moves *forward*
-faster than real time is admissible to the guest, which has no wall clock; the
-host keeps the future-block check (`#[cfg(not(target_os = "zkvm"))]` upstream).
+faster than real time is admissible: the guest has no wall clock, and the host
+deliberately skips upstream's future-block check
+(`#[cfg(not(target_os = "zkvm"))]`) so that the two agree and a replay does not
+depend on the machine's clock. Admitting a future-dated block is a node's
+concern, not a verifier's.
 
 ## Why this stays maintainable
 
@@ -144,8 +152,9 @@ failure. Un-ignoring them needs **three** things, not one: a corpus carrying the
 slot-101 proof, a corpus produced under the Tsuki fee parameters, and a trusted
 parent header at each call site. The first test already passes its chunk's real
 parent (block 11 anchors blocks 12 and 13); the second is a single block, so it
-also needs a header fixture for block 18. Each `#[ignore]` reason names what it
-is waiting for.
+also needs the header of block 18 as
+`testdata/dogeos/next-message-index/6281971-18-header.json`. Each `#[ignore]`
+reason names the exact thing it is waiting for.
 
 Until then the Tsuki configuration this overlay ships — parent required, header
 rules rooted in the trusted parent, base fee enforced per block — is covered by

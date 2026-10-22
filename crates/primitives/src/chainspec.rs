@@ -13,6 +13,15 @@ pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
     registered(chain).map(|entry| entry.spec.clone())
 }
 
+/// Whether this build knows the chain, and so has its genesis document and its configuration.
+///
+/// An unknown chain falls back to the development blueprint, whose L2SystemConfig address is the
+/// zero address, so a rule that depends on that configuration has to refuse an unknown chain
+/// rather than read the blueprint's placeholder.
+pub fn is_registered_chain(chain: Chain) -> bool {
+    registered(chain).is_some()
+}
+
 /// A chain this build knows: its specification, and the builder blueprint that starts from that
 /// chain's own genesis document.
 struct RegisteredChain {
@@ -74,10 +83,15 @@ where
 /// from an unset L2SystemConfig address rather than reading the zero account and taking the
 /// default overhead.
 ///
-/// The forced schedule covers every DogeOS execution fork, and only those. A chain whose genesis
-/// document declares `tsukiFeeParamsTime` keeps that activation: the EIP-1559 fee schedule is a
-/// property of the chain, not of the fork the caller is forcing, and the execution client reads it
-/// the same way. Forcing a fork therefore selects the execution rules, not the fee schedule.
+/// The forced schedule covers every DogeOS execution fork, and only those.
+///
+/// # Panics
+///
+/// If the chain's genesis document declares `tsukiFeeParamsTime`. The EIP-1559 fee schedule is a
+/// property of the chain and the execution client reads it from the genesis document, so a forced
+/// schedule either ignores the declaration - diverging from the node for exactly the chains that
+/// make one - or silently overrides the fork the caller asked for. Neither is safe for a rule that
+/// feeds public inputs, so such a chain has to be proven with its own specification.
 pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
@@ -86,6 +100,22 @@ pub fn build_chain_spec_force_hardfork(
     use dogeos_chainspec::DogeosChainSpecBuilder;
 
     let registered = registered(chain);
+    // A genesis that declares its own D48/E10 activation cannot be represented by a forced
+    // schedule: the execution client reads the fee parameters from the genesis document, so
+    // forcing them would compute a different base fee from the node for exactly the chains that
+    // declare one. No DogeOS genesis declares the field today; refuse rather than diverge.
+    if let Some(entry) = &registered {
+        let declared = dogeos_chainspec::DogeosHardforkInfo::try_from(
+            &entry.spec.genesis().config.extra_fields,
+        )
+        .expect("a registered genesis has valid hardfork timestamps")
+        .tsuki_fee_params_time;
+        assert!(
+            declared.is_none(),
+            "chain {chain} declares a delayed fee-parameter activation, which a forced-hardfork \
+             spec cannot represent: use the chain's own specification"
+        );
+    }
     let mut builder = registered
         .as_ref()
         .map_or(DogeosChainSpecBuilder::dev as fn() -> _, |entry| {
@@ -212,14 +242,11 @@ mod tests {
         );
     }
 
-    /// A chain whose genesis document declares a delayed D48/E10 activation keeps it: the fee
-    /// schedule is a property of the chain, and the execution client reads it the same way, so
-    /// forcing a fork selects the execution rules and not the fee parameters. A guest that forced
-    /// the schedule instead would compute a different base fee from the node for such a chain.
+    /// A genesis that declares its own delayed D48/E10 activation keeps it, and a forced-hardfork
+    /// spec refuses to be built for such a chain rather than silently moving the activation.
     #[test]
-    fn a_delayed_fee_params_activation_in_the_genesis_is_kept() {
+    fn a_declared_fee_params_activation_is_honoured() {
         use super::*;
-        use crate::hardforks::Hardfork;
         use dogeos_chainspec::DogeosChainSpec;
 
         let activation = 2_000_000_000;
@@ -228,7 +255,7 @@ mod tests {
             .config
             .extra_fields
             .insert("tsukiFeeParamsTime".into(), activation.into());
-        let declared = DogeosChainSpec::from_custom_genesis(genesis.clone());
+        let declared = DogeosChainSpec::from_custom_genesis(genesis);
 
         assert_eq!(
             declared.base_fee_params_at_timestamp(activation - 1),
@@ -238,15 +265,29 @@ mod tests {
             declared.base_fee_params_at_timestamp(activation),
             BaseFeeParams::new(48, 10)
         );
+    }
 
-        // Forcing Tsuki does not move that activation forward.
-        let forced = build_chain_spec_force_hardfork(DOGEOS_MAINNET.chain, Hardfork::Tsuki);
-        assert!(forced.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
-        assert_eq!(
-            forced.base_fee_params_at_timestamp(0),
-            BaseFeeParams::new(48, 10),
-            "the registered mainnet genesis declares no delayed activation"
-        );
+    /// The registered chains declare no delayed activation, so forcing a fork is representable
+    /// for them and gives the fork's own parameters.
+    #[test]
+    fn forcing_a_fork_gives_that_forks_fee_parameters() {
+        use super::*;
+        use crate::hardforks::Hardfork;
+
+        for chain in [DOGEOS_MAINNET.chain, DOGEOS_CHIKYU.chain, DOGEOS_DEV.chain] {
+            assert_eq!(
+                build_chain_spec_force_hardfork(chain, Hardfork::Tsuki)
+                    .base_fee_params_at_timestamp(0),
+                BaseFeeParams::new(48, 10),
+                "chain {chain}"
+            );
+            assert_eq!(
+                build_chain_spec_force_hardfork(chain, Hardfork::Feynman)
+                    .base_fee_params_at_timestamp(0),
+                BaseFeeParams::new(8, 2),
+                "chain {chain}"
+            );
+        }
     }
 
     #[test]
