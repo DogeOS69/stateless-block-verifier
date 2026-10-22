@@ -258,7 +258,8 @@ bad="$(jq -c --arg fee "$(cast to-hex "$wrong_fee")" --arg hash "$(reseal "$wron
 response="$(engine engine_newPayloadV1 "$bad")"
 status="$(jq -r .status <<<"$response")"
 [[ "$status" == "INVALID" ]] || { echo "a wrong base fee was answered $status, expected INVALID" >&2; exit 1; }
-# And for the fee, not for the hash: an unsealed mutation is rejected either way.
+# And for the fee, not for the hash: an unsealed mutation is rejected either way. The string is
+# the execution client's own wording, so this check follows it if it changes.
 jq -r '.validationError // ""' <<<"$response" | grep -qi "base fee" \
   || { echo "the rejection does not name the base fee: $response" >&2; exit 1; }
 
