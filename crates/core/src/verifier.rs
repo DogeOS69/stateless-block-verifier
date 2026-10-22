@@ -589,7 +589,7 @@ mod base_fee_rule_tests {
     /// Building it from an empty trie and committing a post state leaves every other key
     /// *authenticated* absent rather than unresolved, which is what distinguishes "the contract
     /// is not deployed" from "the witness does not cover the contract".
-    fn state_with(accounts: &[(Address, &[(U256, U256)])]) -> SparseState {
+    pub(super) fn state_with(accounts: &[(Address, &[(U256, U256)])]) -> SparseState {
         let (mut trie, _) =
             SparseState::new(&ExecutionWitness::default(), EMPTY_ROOT_HASH).expect("an empty trie");
         let mut post = HashedPostState::default();
@@ -831,7 +831,7 @@ mod base_fee_rule_tests {
 
     /// A real witness, replayed as a cold sparse state: the trie is built by `SparseState::new`
     /// and nothing has touched it, which is the state every chunk's first block is read from.
-    fn cold_state(witness: &BlockWitness) -> SparseState {
+    pub(super) fn cold_state(witness: &BlockWitness) -> SparseState {
         let execution_witness = ExecutionWitness {
             state: witness.states.clone(),
             codes: witness.codes.clone(),
@@ -1287,6 +1287,252 @@ mod base_fee_rule_tests {
     }
 }
 
+/// The regenerated Tsuki corpora, replayed through `run` with every rule enforced.
+///
+/// Each one is a real chain built by a node that applies the base-fee rule at import and writes
+/// the L2SystemConfig slot into its execution witnesses, on a chain id this build knows, so the
+/// guest can read the overhead from the same account the node read it from. They are what turns
+/// the rule from a set of vectors into a replay.
+#[cfg(test)]
+#[cfg(feature = "scroll-compress-info")]
+mod regenerated_corpus_tests {
+    use super::*;
+    use sbv_primitives::{
+        chainspec::{Chain, build_chain_spec_force_hardfork, scroll::DOGEOS_DEV},
+        hardforks::Hardfork,
+        types::consensus::Header,
+    };
+
+    /// The overhead the chains start on, before any is configured.
+    const DEFAULT_OVERHEAD: u64 = 15_680_000;
+    /// The overhead `configured-overhead` sets in block 4.
+    const CONFIGURED_OVERHEAD: u64 = 200_000_000;
+
+    macro_rules! corpus {
+        ($dir:literal, $($block:literal),+) => {
+            (
+                serde_json::from_str::<Header>(include_str!(concat!(
+                    "../../../../testdata/dogeos/base-fee-rule/", $dir, "/parent.json"
+                )))
+                .expect("the genesis header"),
+                [$(
+                    serde_json::from_str::<BlockWitness>(include_str!(concat!(
+                        "../../../../testdata/dogeos/base-fee-rule/", $dir, "/", $block, ".json"
+                    )))
+                    .expect("a block witness"),
+                )+],
+            )
+        };
+    }
+
+    /// Blocks 1-7 of a chain whose L2SystemConfig contract is there from genesis with its
+    /// overhead unset. Block 4's transaction sets the overhead, so blocks 1-4 are judged on the
+    /// default and blocks 5-7 on the configured one.
+    fn configured_overhead() -> (Header, [BlockWitness; 7]) {
+        corpus!("configured-overhead", "1", "2", "3", "4", "5", "6", "7")
+    }
+
+    /// Blocks 1-7 of a chain whose L2SystemConfig account does not exist until block 4 creates it
+    /// with a plain transfer. The overhead is never configured, so every block is judged on the
+    /// default - first through an authenticated absent account, then through an authenticated
+    /// empty slot. This is the shape of a chain whose genesis does not carry the contract.
+    fn absent_then_created() -> (Header, [BlockWitness; 7]) {
+        corpus!("absent-then-created", "1", "2", "3", "4", "5", "6", "7")
+    }
+
+    /// Blocks 1-4 of the registered development chain, whose configuration names the zero address
+    /// as its L2SystemConfig contract. Its node reads slot 101 of that account, finds an
+    /// authenticated absence and applies the default overhead; the verifier has to agree.
+    fn development_chain() -> (Header, [BlockWitness; 4]) {
+        corpus!("development-chain", "1", "2", "3", "4")
+    }
+
+    fn tsuki_spec(witness: &BlockWitness) -> Arc<ChainSpec> {
+        build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki)
+    }
+
+    /// The fee the rule derives for `witness`'s block from `parent` and a chosen overhead, used to
+    /// show which overhead the recorded header actually followed.
+    fn fee_from(witness: &BlockWitness, parent: &Header, overhead: u64) -> u64 {
+        let chain_spec = tsuki_spec(witness);
+        let state = base_fee_rule_tests::state_with(&[(
+            chain_spec.chain_config().l1_config.l2_system_config_address,
+            &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(overhead))],
+        )]);
+        let (bytecode, block_hashes) = (Default::default(), BTreeMap::new());
+        let mut db = BaseFeeDatabase(WitnessDatabase::new(&state, &bytecode, &block_hashes));
+        ScrollBaseFeeProvider::new(chain_spec)
+            .next_block_base_fee(&mut db, parent, witness.header.timestamp)
+            .unwrap()
+    }
+
+    /// Every block of every corpus replays, as one chunk anchored to the chain's genesis header.
+    /// The rule is enforced on each of them: the base fee, the gas accounting, the header rules
+    /// and the body commitments.
+    #[test]
+    fn the_regenerated_corpora_replay_with_every_rule_enforced() {
+        let (genesis, blocks) = configured_overhead();
+        let spec = tsuki_spec(&blocks[0]);
+        let result = run_host(&blocks, Some(&genesis), spec).expect("configured-overhead");
+        assert_eq!(result.pre_state_root, genesis.state_root);
+        assert_eq!(
+            result.blocks.last().unwrap().hash(),
+            blocks.last().unwrap().header.hash_slow()
+        );
+
+        let (genesis, blocks) = absent_then_created();
+        let spec = tsuki_spec(&blocks[0]);
+        run_host(&blocks, Some(&genesis), spec).expect("absent-then-created");
+
+        let (genesis, blocks) = development_chain();
+        assert_eq!(blocks[0].chain_id, DOGEOS_DEV.chain.id());
+        let spec = tsuki_spec(&blocks[0]);
+        run_host(&blocks, Some(&genesis), spec).expect("development-chain");
+    }
+
+    /// The authenticated L2 message queue index the proof publishes is read from these chains too.
+    /// None of them withdraws to L1, so it stays zero - but it is read, not assumed: the Tsuki
+    /// branch of the queue read needs the slot proof in every witness.
+    #[test]
+    fn the_queue_index_is_read_from_the_regenerated_corpora() {
+        for (genesis, blocks) in [configured_overhead(), absent_then_created()] {
+            let spec = tsuki_spec(&blocks[0]);
+            assert!(spec.is_tsuki_active_at_timestamp(blocks[0].header.timestamp));
+            let result = run_host(&blocks, Some(&genesis), spec).expect("the chain replays");
+            assert_eq!(result.next_message_index, 0, "no block withdraws to L1");
+        }
+    }
+
+    /// The chain's first chunk is anchored to its genesis header, so the genesis endpoint is the
+    /// genesis block hash - and a chunk opened with any other header is not that chain's.
+    #[test]
+    fn the_first_chunk_opens_the_genesis_header() {
+        let (genesis, blocks) = configured_overhead();
+        let spec = tsuki_spec(&blocks[0]);
+        assert_eq!(genesis.number, 0);
+        assert_eq!(blocks[0].header.parent_hash, genesis.hash_slow());
+
+        run_host(&blocks[..1], Some(&genesis), spec.clone()).expect("the first chunk");
+
+        let mut substituted = genesis.clone();
+        substituted.state_root = B256::repeat_byte(9);
+        assert!(matches!(
+            run_host(&blocks[..1], Some(&substituted), spec),
+            Err(StatelessValidationError::ParentHashMismatch { .. })
+        ));
+    }
+
+    /// The overhead a transaction writes applies from the **next** block, and the block that
+    /// writes it is still judged on the old one. The rule reads each block's pre-state, so this
+    /// holds whether the two blocks are one chunk or two chunks meeting at the boundary - the
+    /// second chunk's trusted parent and pre-state are exactly what the first chunk ended on.
+    #[test]
+    fn an_overhead_change_applies_from_the_next_block_through_run() {
+        let (_, blocks) = configured_overhead();
+        let spec = tsuki_spec(&blocks[0]);
+        // Block 4 writes the overhead; its own fee still follows the default.
+        let (change, first_on_new) = (&blocks[3], &blocks[4]);
+        assert_eq!(change.header.number, 4);
+        assert_eq!(
+            change.header.base_fee_per_gas,
+            Some(fee_from(change, &blocks[2].header, DEFAULT_OVERHEAD)),
+            "block 4 follows the overhead its own pre-state holds"
+        );
+        let on_new = fee_from(first_on_new, &change.header, CONFIGURED_OVERHEAD);
+        let on_old = fee_from(first_on_new, &change.header, DEFAULT_OVERHEAD);
+        assert_eq!(first_on_new.header.base_fee_per_gas, Some(on_new));
+        assert_ne!(on_new, on_old);
+
+        // As one chunk.
+        run_host(&blocks[3..5], Some(&blocks[2].header), spec.clone())
+            .expect("the change and its successor in one chunk");
+
+        // As two chunks meeting at the boundary: the first ends on block 4, the second opens it.
+        let first = run_host(&blocks[3..4], Some(&blocks[2].header), spec.clone())
+            .expect("the chunk that changes the overhead");
+        let second = run_host(&blocks[4..5], Some(&change.header), spec.clone())
+            .expect("the chunk that starts on the new overhead");
+        assert_eq!(
+            first.blocks.last().unwrap().hash(),
+            change.header.hash_slow()
+        );
+        assert_eq!(second.pre_state_root, change.header.state_root);
+
+        // The successor carrying the fee the *old* overhead derives is rejected, in either shape.
+        let mut stale = blocks.clone();
+        stale[4].header.base_fee_per_gas = Some(on_old);
+        for (chunk, parent) in [
+            (&stale[3..5], &blocks[2].header),
+            (&stale[4..5], &change.header),
+        ] {
+            assert!(
+                matches!(
+                    run_host(chunk, Some(parent), spec.clone()),
+                    Err(StatelessValidationError::BaseFeeMismatch {
+                        block_number: 5,
+                        got,
+                        expected,
+                    }) if got == on_old && expected == on_new
+                ),
+                "the stale fee must be rejected"
+            );
+        }
+    }
+
+    /// The account appearing mid-chain is the shape of any chain whose genesis does not carry the
+    /// contract: the overhead comes from an authenticated absent account before, and from an
+    /// authenticated empty slot after, and the default applies throughout.
+    #[test]
+    fn an_account_that_appears_mid_chain_keeps_the_default_overhead() {
+        let (genesis, blocks) = absent_then_created();
+        let spec = tsuki_spec(&blocks[0]);
+        let system_config = spec.chain_config().l1_config.l2_system_config_address;
+
+        // Before block 4 the account is not in the state; afterwards it is, with no storage.
+        let state_before = base_fee_rule_tests::cold_state(&blocks[3]);
+        assert!(state_before.account(system_config).unwrap().is_none());
+        let state_after = base_fee_rule_tests::cold_state(&blocks[4]);
+        let account = state_after
+            .account(system_config)
+            .unwrap()
+            .expect("the transfer created the account");
+        assert_eq!(account.storage_root, sbv_trie::EMPTY_ROOT_HASH);
+
+        run_host(&blocks, Some(&genesis), spec).expect("the whole chain replays");
+    }
+
+    /// A chunk that drops the witness node proving the L2SystemConfig slot fails the proof rather
+    /// than falling back to the default overhead, on a corpus that does carry it.
+    #[test]
+    fn withholding_the_slot_proof_from_a_good_corpus_fails_the_proof() {
+        let (_, blocks) = configured_overhead();
+        let spec = tsuki_spec(&blocks[0]);
+        let system_config = spec.chain_config().l1_config.l2_system_config_address;
+        // Block 5 is judged on the configured overhead, so its witness has to resolve the slot.
+        let storage_root = base_fee_rule_tests::cold_state(&blocks[4])
+            .account(system_config)
+            .unwrap()
+            .expect("the account is there")
+            .storage_root;
+        let mut withheld = blocks.clone();
+        let before = withheld[4].states.len();
+        withheld[4]
+            .states
+            .retain(|node| sbv_primitives::keccak256(node) != storage_root);
+        assert_eq!(
+            withheld[4].states.len() + 1,
+            before,
+            "the witness must carry the node being withheld"
+        );
+
+        assert_unresolved_node_abort(|| {
+            run_host(&withheld[4..5], Some(&blocks[3].header), spec.clone())
+        });
+        // The untouched witness verifies, so the abort is the withheld node and nothing else.
+        run_host(&blocks[4..5], Some(&blocks[3].header), spec).expect("the untouched witness");
+    }
+}
+
 /// The trusted parent header anchors a chunk, and the body commitments and gas accounting of
 /// every block are checked against what the block actually executed.
 #[cfg(test)]
@@ -1704,13 +1950,13 @@ mod host_tests {
     /// These blocks contain no L1 messages, so the queue index remains zero. The forced Tsuki
     /// chain spec is intentional: the local fixture predates the public Chikyū activation time,
     /// but was produced by a Tsuki-enabled development network.
-    /// Un-ignoring this needs a corpus that carries the L2SystemConfig slot-101 proof **and** was
-    /// produced under the Tsuki EIP-1559 parameters: the recorded lineage satisfies neither, and
-    /// `the_recorded_lineages_follow_the_rule` shows it follows the Feynman parameters instead.
-    /// The call below already passes the chunk's real parent header, so the corpus is the only
-    /// thing missing.
+    /// This lineage predates both the L2SystemConfig slot-101 proof and the Tsuki EIP-1559
+    /// parameters, which `the_recorded_lineages_follow_the_rule` shows. Its empty-queue coverage
+    /// now comes from the regenerated corpora instead
+    /// (`the_queue_index_is_read_from_the_regenerated_corpora`); this stays as the record of what
+    /// the old lineage cannot satisfy, for whoever replaces it.
     #[test]
-    #[ignore = "needs a Tsuki corpus carrying the L2SystemConfig slot-101 proof, produced under the Tsuki fee parameters"]
+    #[ignore = "superseded by testdata/dogeos/base-fee-rule: this lineage predates the slot-101 proof and the Tsuki fee parameters"]
     fn test_next_message_index_tsuki_empty_queue_witnesses() {
         let witnesses = [
             include_str!("../../../testdata/dogeos/next-message-index/tsuki-empty-queue/11.json"),
@@ -1748,11 +1994,11 @@ mod host_tests {
     /// to `1` in its final state. The forced Tsuki chain spec is intentional: this development
     /// fixture predates a public Chikyū activation and the registered Chikyū spec does not activate
     /// Tsuki.
-    /// Un-ignoring this needs the same corpus as above **and** the header of block 18, as
-    /// `testdata/dogeos/next-message-index/6281971-18-header.json`: the witness is a single block,
-    /// so the corpus carries no parent for it. The corpus regeneration task produces both.
+    /// The only coverage of a **non-zero** queue index. The regenerated corpora do not withdraw
+    /// to L1, so this still needs a Tsuki chain that does, plus the header of the block before
+    /// its withdrawal block to anchor the chunk to.
     #[test]
-    #[ignore = "needs testdata/dogeos/next-message-index/6281971-18-header.json and a Tsuki corpus carrying the L2SystemConfig slot-101 proof"]
+    #[ignore = "needs a Tsuki corpus with an L2-to-L1 withdrawal, and the header of the block before it"]
     fn test_next_message_index_post_tsuki_transition() {
         const EXPECTED_NEXT_MESSAGE_INDEX: u64 = 1;
         const EXPECTED_BLOCK_HASH: B256 = sbv_primitives::b256!(

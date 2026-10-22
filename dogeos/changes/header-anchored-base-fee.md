@@ -136,34 +136,40 @@ apply, which `the_gas_rules_survive_a_future_dated_header` pins.
   the exception: its published genesis hash is stored in the specification, not
   derived from its genesis document.
 
-## Known gap: the recorded Tsuki corpus
+## The regenerated corpora
 
-The Tsuki witnesses under `testdata/dogeos/next-message-index/` cannot satisfy
-the base-fee rule, for two independent reasons:
+`testdata/dogeos/base-fee-rule/` holds three short Tsuki chains built by a node that enforces the
+rule at import and writes the overhead slot into its execution witnesses. They replay through
+`run` with every rule enforced, which is what turns the rule from a set of vectors into a replay:
 
-- they carry no trie node that resolves the L2SystemConfig account, at any of
-  the candidate addresses, so the overhead cannot be read at all;
-- their producing node predates the Tsuki EIP-1559 parameters (denominator 48,
-  elasticity 10). Their recorded base fees follow the rule exactly under the
-  Feynman parameters (denominator 8, elasticity 2) with the default overhead,
-  which is what `the_recorded_lineages_follow_the_rule` asserts.
+- `configured-overhead/` — the contract is a genesis predeploy with its slot unset, block 4's
+  transaction sets the overhead, and blocks 5–7 are judged on it. This is the corpus behind the
+  run-level ordering test: block 4 follows the overhead *its own pre-state* holds and block 5
+  follows the new one, as one chunk and as two chunks meeting at the boundary, with the successor
+  carrying the stale fee rejected in both shapes.
+- `absent-then-created/` — the account does not exist until block 4 creates it with a plain
+  transfer: an authenticated absent account, then the account appearing mid-chain, then an
+  authenticated empty slot. This is the shape of any chain whose genesis does not carry the
+  contract, mainnet's included.
+- `development-chain/` — the registered development chain, whose configuration names the zero
+  address. Its node reads slot 101 of that account and finds an authenticated absence, and the
+  verifier agrees rather than refusing the chain.
 
-`test_next_message_index_tsuki_empty_queue_witnesses` and
-`test_next_message_index_post_tsuki_transition` are therefore `#[ignore]`d, and
-`a_tsuki_chunk_without_an_l2_system_config_proof_fails_the_proof` pins the
-failure. Un-ignoring them needs **three** things, not one: a corpus carrying the
-slot-101 proof, a corpus produced under the Tsuki fee parameters, and a trusted
-parent header at each call site. The first test already passes its chunk's real
-parent (block 11 anchors blocks 12 and 13); the second is a single block, so it
-also needs the header of block 18 as
-`testdata/dogeos/next-message-index/6281971-18-header.json`. Each `#[ignore]`
-reason names the exact thing it is waiting for.
+The corpora run on chain ids this build knows, with the L2SystemConfig at each chain's own
+configured address. The node lane's recipe uses chain id 1122099, which no DogeOS build knows: the
+guest reads the overhead from the contract **its chain's configuration names**, so a chain it does
+not know has no authenticated address and is refused. `testdata/dogeos/base-fee-rule/README.md`
+has the reproduction, and keeps this directory's copy of the recipe beside the genesis documents.
 
-Until then the Tsuki configuration this overlay ships — parent required, header
-rules rooted in the trusted parent, base fee enforced per block — is covered by
-vectors rather than by a replay: treat the corpus regeneration as a merge gate,
-not a note. `l2_message_queue_info`'s Tsuki branch, which lost its only replay
-with those tests, is driven directly in `base_fee_rule_tests` instead.
+## Still missing: a non-zero message queue index
+
+No block in these corpora withdraws to L1, so the authenticated L2 message queue index stays zero
+— read, not assumed, which `the_queue_index_is_read_from_the_regenerated_corpora` pins. A non-zero
+index was only ever covered by `test_next_message_index_post_tsuki_transition`, whose lineage
+predates both the slot-101 proof and the Tsuki EIP-1559 parameters; it stays `#[ignore]`d until a
+Tsuki chain that withdraws exists, together with the header of the block before its withdrawal
+block. `test_next_message_index_tsuki_empty_queue_witnesses` is superseded by the corpora above
+and stays as the record of what its lineage cannot satisfy.
 
 ## Upkeep notes
 
