@@ -96,32 +96,52 @@ pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
 ) -> Arc<ChainSpec> {
-    use crate::hardforks::Hardfork;
     use dogeos_chainspec::DogeosChainSpecBuilder;
 
-    let registered = registered(chain);
-    // A genesis that declares its own D48/E10 activation cannot be represented by a forced
-    // schedule: the execution client reads the fee parameters from the genesis document, so
-    // forcing them would compute a different base fee from the node for exactly the chains that
-    // declare one. No DogeOS genesis declares the field today; refuse rather than diverge.
-    if let Some(entry) = &registered {
-        let declared = dogeos_chainspec::DogeosHardforkInfo::try_from(
-            &entry.spec.genesis().config.extra_fields,
-        )
-        .expect("a registered genesis has valid hardfork timestamps")
-        .tsuki_fee_params_time;
-        assert!(
-            declared.is_none(),
-            "chain {chain} declares a delayed fee-parameter activation, which a forced-hardfork \
-             spec cannot represent: use the chain's own specification"
-        );
+    match registered(chain) {
+        Some(entry) => build_forced_spec(
+            chain,
+            hardfork,
+            entry.blueprint,
+            entry.spec.genesis().clone(),
+            entry.spec.config,
+        ),
+        None => build_forced_spec(
+            chain,
+            hardfork,
+            DogeosChainSpecBuilder::dev,
+            DOGEOS_DEV.genesis().clone(),
+            DOGEOS_DEV.config,
+        ),
     }
-    let mut builder = registered
-        .as_ref()
-        .map_or(DogeosChainSpecBuilder::dev as fn() -> _, |entry| {
-            entry.blueprint
-        })()
-    .chain(chain);
+}
+
+/// Builds a forced-hardfork spec from an explicit blueprint, genesis document and configuration.
+///
+/// Split out so a test can supply a genesis the registered chains do not have.
+///
+/// # Panics
+///
+/// If `genesis` declares `tsukiFeeParamsTime`; see [`build_chain_spec_force_hardfork`].
+fn build_forced_spec(
+    chain: Chain,
+    hardfork: crate::hardforks::Hardfork,
+    blueprint: fn() -> dogeos_chainspec::DogeosChainSpecBuilder,
+    genesis: alloy_genesis::Genesis,
+    config: dogeos_chainspec::ScrollChainConfig,
+) -> Arc<ChainSpec> {
+    use crate::hardforks::Hardfork;
+
+    let declared = dogeos_chainspec::DogeosHardforkInfo::try_from(&genesis.config.extra_fields)
+        .expect("a genesis document has valid hardfork timestamps")
+        .tsuki_fee_params_time;
+    assert!(
+        declared.is_none(),
+        "chain {chain} declares a delayed fee-parameter activation, which a forced-hardfork spec \
+         cannot represent: use the chain's own specification"
+    );
+
+    let mut builder = blueprint().chain(chain).genesis(genesis);
     // `Hardfork::dev()` is the schedule of every DogeOS execution fork, so a fork added upstream
     // joins the forced schedule instead of silently keeping the blueprint chain's own activation.
     for (fork, _) in Hardfork::dev() {
@@ -140,7 +160,6 @@ pub fn build_chain_spec_force_hardfork(
         hardfork
     );
 
-    let config = registered.map_or(DOGEOS_DEV.config, |entry| entry.spec.config);
     Arc::new(builder.build(config))
 }
 
@@ -264,6 +283,30 @@ mod tests {
         assert_eq!(
             declared.base_fee_params_at_timestamp(activation),
             BaseFeeParams::new(48, 10)
+        );
+    }
+
+    /// A genesis that declares a delayed activation cannot be represented by a forced schedule,
+    /// so building one is refused through the construction path the public helper uses.
+    #[test]
+    #[should_panic(expected = "declares a delayed fee-parameter activation")]
+    fn forcing_a_fork_over_a_declared_fee_params_activation_is_refused() {
+        use super::*;
+        use crate::hardforks::Hardfork;
+        use dogeos_chainspec::DogeosChainSpecBuilder;
+
+        let mut genesis = DOGEOS_MAINNET.genesis().clone();
+        genesis
+            .config
+            .extra_fields
+            .insert("tsukiFeeParamsTime".into(), 2_000_000_000u64.into());
+
+        let _ = build_forced_spec(
+            DOGEOS_MAINNET.chain,
+            Hardfork::Tsuki,
+            DogeosChainSpecBuilder::dogeos_mainnet,
+            genesis,
+            DOGEOS_MAINNET.config,
         );
     }
 

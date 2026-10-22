@@ -98,7 +98,10 @@ faster than real time is admissible: the guest has no wall clock, and the host
 deliberately skips upstream's future-block check
 (`#[cfg(not(target_os = "zkvm"))]`) so that the two agree and a replay does not
 depend on the machine's clock. Admitting a future-dated block is a node's
-concern, not a verifier's.
+concern, not a verifier's. That check returns early, so the whole validator is
+re-run against a copy whose timestamp cannot be in the future rather than
+dropping its error: the rules behind it — the gas rules among them — still
+apply, which `the_gas_rules_survive_a_future_dated_header` pins.
 
 ## Why this stays maintainable
 

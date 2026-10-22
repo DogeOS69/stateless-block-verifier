@@ -467,14 +467,26 @@ fn validate_headers(
         let header = SealedHeader::new_unhashed(witness.header.clone());
         match DogeosConsensus.validate_header(&header) {
             Ok(()) => {}
-            // `validate_header` adds a wall-clock future-block check outside the guest (upstream
-            // guards it with `cfg(not(target_os = "zkvm"))`). A verifier replays history and must
-            // not depend on the clock, or the host would reject a chunk the guest accepts and the
-            // same inputs would answer differently at different times. It is the only rule in
-            // `validate_header` that reports a timestamp in the past, and the parent-relative
-            // timestamp rule below covers every header against its real predecessor, so skipping
-            // it here loses nothing.
-            Err(ConsensusError::TimestampIsInPast { .. }) => {}
+            // Outside the guest, `validate_header` also rejects a header dated in the future
+            // (upstream guards that check with `cfg(not(target_os = "zkvm"))`). A verifier
+            // replays history, so depending on the clock would let the host reject a chunk the
+            // guest accepts, and would answer differently at different times.
+            //
+            // The check returns early, so simply ignoring its error would lose every rule that
+            // follows it - the gas rules among them. The whole validator is therefore re-run
+            // against a copy whose timestamp cannot be in the future: the timestamp is an input
+            // to no other rule in it, and the rule that does relate a timestamp to something -
+            // its parent's - runs below against the real header.
+            Err(ConsensusError::TimestampIsInPast { .. }) => {
+                let mut undated = witness.header.clone();
+                undated.timestamp = 0;
+                DogeosConsensus
+                    .validate_header(&SealedHeader::new_unhashed(undated))
+                    .map_err(|source| StatelessValidationError::InvalidHeader {
+                        block_number,
+                        source,
+                    })?;
+            }
             Err(source) => {
                 return Err(StatelessValidationError::InvalidHeader {
                     block_number,
@@ -1067,6 +1079,59 @@ mod base_fee_rule_tests {
         );
     }
 
+    /// A canonical DogeOS header: every constant field as the rules require it, so a test can
+    /// break exactly one of them.
+    fn canonical_header(timestamp: u64) -> Header {
+        Header {
+            ommers_hash: sbv_primitives::types::consensus::EMPTY_OMMER_ROOT_HASH,
+            difficulty: U256::from(1),
+            base_fee_per_gas: Some(1_000_000_000),
+            gas_limit: GAS_LIMIT,
+            gas_used: 1,
+            timestamp,
+            ..Default::default()
+        }
+    }
+
+    fn witness_with_header(header: Header) -> BlockWitness {
+        BlockWitness {
+            chain_id: 1,
+            header,
+            prev_state_root: B256::ZERO,
+            transactions: Vec::new(),
+            withdrawals: None,
+            states: Vec::new(),
+            codes: Vec::new(),
+        }
+    }
+
+    /// Outside the guest, upstream's `validate_header` rejects a future-dated header before it
+    /// reaches its gas rules and returns early. Skipping the clock check must not take the rules
+    /// behind it with it: a future-dated header that breaks a gas rule is still rejected, and one
+    /// that breaks nothing is still accepted.
+    #[rstest::rstest]
+    #[case::gas_used_over_limit(|h: &mut Header| h.gas_used = h.gas_limit + 1, true)]
+    #[case::gas_limit_over_maximum(|h: &mut Header| h.gas_limit = u64::MAX, true)]
+    #[case::canonical(|_: &mut Header| {}, false)]
+    fn the_gas_rules_survive_a_future_dated_header(
+        #[case] mutate: fn(&mut Header),
+        #[case] rejected: bool,
+    ) {
+        // Far enough ahead that no plausible clock makes it the past.
+        let future = u64::MAX / 2;
+        let mut header = canonical_header(future);
+        mutate(&mut header);
+        let witnesses = [witness_with_header(header)];
+
+        let result = validate_headers(None, &witnesses);
+
+        assert_eq!(
+            matches!(result, Err(StatelessValidationError::InvalidHeader { .. })),
+            rejected,
+            "{result:?}"
+        );
+    }
+
     /// The development chain is registered and names the zero address, and its node reads that
     /// account and finds an authenticated absence. The verifier has to agree with it rather than
     /// refuse the chain, or every block the development node produces would be unprovable.
@@ -1099,6 +1164,15 @@ mod base_fee_rule_tests {
         .expect("the development chain must verify, not be refused");
     }
 
+    /// A real block whose header carries the given base fee and timestamp. Only the fields the
+    /// base-fee rule reads matter; the rest come from a recorded witness.
+    fn block_with_fee(base_fee: u64, timestamp: u64) -> RecoveredBlock<Block> {
+        let mut witness = tsuki_witness_11();
+        witness.header.base_fee_per_gas = Some(base_fee);
+        witness.header.timestamp = timestamp;
+        witness.build_reth_block().unwrap()
+    }
+
     /// Writes `overhead` into the L2SystemConfig slot of `state`, as a transaction in the block
     /// being verified would: the write lands in the block's **post**-state.
     fn commit_overhead(state: &mut SparseState, address: Address, overhead: u64) {
@@ -1125,13 +1199,15 @@ mod base_fee_rule_tests {
         state.calculate_state_root(post);
     }
 
-    /// The overhead is read before the block's own state changes are committed, so a block whose
-    /// transaction changes it still derives its own fee from the old value and its successor from
-    /// the new one - whether that successor is the next block of the same chunk or the first block
-    /// of the next chunk, which reads the same state as its pre-state and the same header as its
-    /// trusted parent.
+    /// A committed change to the overhead is visible to the next block and not to the block that
+    /// made it: block n is checked against the trie as it stands, the write its transaction makes
+    /// is committed, and block n+1 is checked against the result.
+    ///
+    /// This covers the state read, not the order in which `run` performs it. A run-level test
+    /// needs a witness whose transaction writes slot 101, which the corpus regeneration provides;
+    /// until then nothing here would fail if the production check moved after execution.
     #[test]
-    fn an_overhead_change_applies_from_the_next_block_and_across_a_chunk_boundary() {
+    fn a_committed_overhead_change_is_visible_to_the_next_block() {
         let chain_spec = build_chain_spec_force_hardfork(DOGEOS_MAINNET.chain, Hardfork::Tsuki);
         let system_config = system_config(&chain_spec);
         let mut state = state_with(&[(
@@ -1139,39 +1215,38 @@ mod base_fee_rule_tests {
             &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(OVERHEAD))],
         )]);
         let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let check = |state: &SparseState, parent: &Header, block: &RecoveredBlock<Block>| {
+            check_base_fee(&chain_spec, state, &bytecode, &block_hashes, parent, block)
+        };
 
-        // Block n is verified against the state as it stands before its own transactions run.
-        let header_n = parent(OVERHEAD + 1_000_000_000, GAS_LIMIT);
-        let fee_n = next_base_fee(&chain_spec, &state, &parent(OVERHEAD + 48, 0)).unwrap();
-        assert_eq!(fee_n, OVERHEAD + 47);
+        // Block n derives its fee from the overhead its own pre-state holds.
+        let header_before_n = parent(OVERHEAD + 1_000_000_000, GAS_LIMIT);
+        let fee_n = next_base_fee(&chain_spec, &state, &header_before_n).unwrap();
+        assert_eq!(fee_n, OVERHEAD + 1_187_500_000);
+        let block_n = block_with_fee(fee_n, header_before_n.timestamp + 1);
+        check(&state, &header_before_n, &block_n).expect("block n carries its derived fee");
 
         // Its transaction doubles the overhead, which lands in its post-state.
         commit_overhead(&mut state, system_config, 2 * OVERHEAD);
 
-        // Block n+1 reads that post-state as its own pre-state, so the new value applies.
+        // Block n+1 reads that post-state as its own pre-state, so the new value applies. The
+        // same state and the same header are what the next chunk is handed as its pre-state and
+        // its trusted parent, so the first block of a chunk split here is checked identically.
+        let header_n = block_n.header().clone();
         let fee_next = next_base_fee(&chain_spec, &state, &header_n).unwrap();
-        assert_eq!(fee_next, 2 * OVERHEAD + 1);
-        assert_ne!(
-            fee_next,
-            next_base_fee(&chain_spec, &state, &parent(OVERHEAD + 48, 0)).unwrap()
-        );
+        // The doubled overhead is above block n's whole base fee, so nothing is left to escalate
+        // and block n+1 pays the overhead alone.
+        assert_eq!(fee_next, 2 * OVERHEAD);
+        assert_ne!(fee_next, fee_n);
+        let block_next = block_with_fee(fee_next, header_n.timestamp + 1);
+        check(&state, &header_n, &block_next).expect("block n+1 derives its fee from the new one");
 
-        let mut witness = tsuki_witness_11();
-        witness.header.timestamp = header_n.timestamp + 1;
-        witness.header.base_fee_per_gas = Some(fee_next);
-        let block = witness.build_reth_block().unwrap();
-        // The same state and the same header are what the next chunk is handed as its pre-state
-        // and its trusted parent, so the first block of that chunk is checked identically.
-        for parent_of_next_block in [&header_n, &header_n] {
-            check_base_fee(&chain_spec, &state, &bytecode, parent_of_next_block, &block)
-                .expect("the successor derives its fee from the new overhead");
-        }
-        // The old fee is no longer the derived one.
-        witness.header.base_fee_per_gas = Some(fee_n);
-        let stale = witness.build_reth_block().unwrap();
+        // Carrying the fee the old overhead derived is rejected.
+        let stale = block_with_fee(fee_n, header_n.timestamp + 1);
         assert!(matches!(
-            check_base_fee(&chain_spec, &state, &bytecode, &header_n, &stale),
-            Err(StatelessValidationError::BaseFeeMismatch { .. })
+            check(&state, &header_n, &stale),
+            Err(StatelessValidationError::BaseFeeMismatch { got, expected, .. })
+                if got == fee_n && expected == fee_next
         ));
     }
 

@@ -17,6 +17,7 @@ tracing = { workspace = true, optional = true }
 
 alloy-consensus = { workspace = true, features = ["serde", "serde-bincode-compat"] }
 alloy-eips.workspace = true
+alloy-genesis = { workspace = true, optional = true }
 alloy-evm = { workspace = true, optional = true }
 alloy-rpc-types-eth.workspace = true
 alloy-rpc-types-debug.workspace = true
@@ -47,7 +48,7 @@ sbv-helpers.workspace = true
 c-kzg = ["revm/c-kzg"]
 
 # Optional capabilities; all exported chain types are Scroll/DogeOS types.
-chainspec = ["dep:reth-chainspec", "dep:dogeos-chainspec", "hardforks"]
+chainspec = ["dep:alloy-genesis", "dep:reth-chainspec", "dep:dogeos-chainspec", "hardforks"]
 evm-types = ["dep:alloy-evm", "dep:dogeos-reth-evm"]
 network-types = []
 hardforks = ["dep:reth-ethereum-forks", "dep:dogeos-hardforks", "dogeos-hardforks/serde"]
