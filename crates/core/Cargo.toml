@@ -40,6 +40,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
+sha2 = { workspace = true, features = ["std"] }
 sbv-primitives.workspace = true
 
 [features]

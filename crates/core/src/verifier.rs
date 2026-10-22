@@ -1366,6 +1366,55 @@ mod regenerated_corpus_tests {
             .unwrap()
     }
 
+    /// `SHA256SUMS` pins the committed bytes of every fixture, so an accidental edit to one is a
+    /// test failure rather than a silently different chain.
+    ///
+    /// It pins the **committed** bytes, not the recipe's output: `debug_executionWitness` returns
+    /// a block's trie nodes in an unspecified order, so a fresh run reproduces the same node set
+    /// in a different order. The README says so beside the reproduction.
+    #[test]
+    fn the_fixture_manifest_matches_the_fixtures() {
+        use sha2::{Digest, Sha256};
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testdata/dogeos/base-fee-rule");
+        let manifest = std::fs::read_to_string(dir.join("SHA256SUMS")).expect("the manifest");
+        let mut listed = std::collections::BTreeSet::new();
+        for line in manifest.lines().filter(|line| !line.trim().is_empty()) {
+            let (expected, path) = line
+                .split_once("  ")
+                .unwrap_or_else(|| panic!("not a sha256sum line: {line}"));
+            let bytes = std::fs::read(dir.join(path))
+                .unwrap_or_else(|error| panic!("{path} is listed but unreadable: {error}"));
+            assert_eq!(
+                format!("{:x}", Sha256::digest(&bytes)),
+                expected,
+                "{path} does not match the manifest"
+            );
+            listed.insert(path.to_string());
+        }
+
+        // Every witness in every corpus has to be listed, so adding one without the manifest is
+        // caught too.
+        let mut present = std::collections::BTreeSet::new();
+        for corpus in std::fs::read_dir(&dir).expect("the corpus directory") {
+            let corpus = corpus.expect("a directory entry").path();
+            if !corpus.is_dir() {
+                continue;
+            }
+            let name = corpus.file_name().unwrap().to_str().unwrap().to_string();
+            for witness in std::fs::read_dir(&corpus).expect("a corpus") {
+                let witness = witness.expect("a directory entry").file_name();
+                let witness = witness.to_str().unwrap();
+                if witness == "provenance.json" || !witness.ends_with(".json") {
+                    continue;
+                }
+                present.insert(format!("{name}/{witness}"));
+            }
+        }
+        assert_eq!(listed, present, "the manifest and the fixtures disagree");
+    }
+
     /// Every block of every corpus replays, as one chunk anchored to the chain's genesis header.
     /// The rule is enforced on each of them: the base fee, the gas accounting, the header rules
     /// and the body commitments.

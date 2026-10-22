@@ -2,6 +2,10 @@
 # Produces a multi-block Tsuki chain on a throwaway DogeOS chain and dumps one
 # `debug_executionWitness` per block, for regenerating the guest's Tsuki fixtures.
 #
+# This describes the default `SYSTEM_CONFIG=deployed` mode. `GENESIS`, `PORT_BASE` and
+# `SYSTEM_CONFIG` (`deployed` | `predeployed` | `created` | `absent`) select the variant; the
+# README's table says which variant produced which committed corpus.
+#
 # The chain runs the Tsuki EIP-1559 parameters (denominator 48, elasticity 10) from genesis and
 # covers what the base-fee rule needs to be exercised end to end:
 #
@@ -107,7 +111,7 @@ sign_tx() { # to value gas [sig arg]
 # An L1 message (type 0x7e) is not signed and never passes through the pool, so it is encoded
 # directly. See scripts/tsuki-witness-corpus/l1_message.py for the field order.
 l1_message() { # queue_index gas to value
-  python3 "$here/l1_message.py" "$1" "$2" "$3" "$4" 0x "$sender"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$here/l1_message.py" "$1" "$2" "$3" "$4" 0x "$sender"
 }
 
 build_block() { # label forced_txs_json
@@ -238,12 +242,25 @@ attrs="$(jq -nc --arg ts "$(cast to-hex "$timestamp")" '{
 payload_id="$(engine engine_forkchoiceUpdatedV1 "$fcs" "$attrs" | jq -r .payloadId)"
 good="$(engine engine_getPayloadV1 "$payload_id")"
 
-# Same payload, one wei off the rule's output. The block hash is recomputed so the payload is
-# well formed and only the fee is wrong.
-bad="$(jq -c --arg h "$(cast to-hex "$(( $(jq -r .baseFeePerGas <<<"$good" | cast to-dec) + 1 ))")" \
-  '.baseFeePerGas = $h' <<<"$good")"
-status="$(engine engine_newPayloadV1 "$bad" | jq -r .status)"
+# Same payload, one wei off the rule's output, resealed so its block hash matches its contents:
+# the node then has nothing to reject but the fee, and has to say so. Sealing is checked against
+# the payload's own hash first, so a mistake in it fails here rather than passing for the wrong
+# reason - which is what an unsealed mutation does.
+echo "$good" > "$work_dir/good-payload.json"
+reseal() { # base_fee_override
+  cast keccak "$(PYTHONDONTWRITEBYTECODE=1 python3 "$here/seal_header.py" "$work_dir/good-payload.json" "$1")"
+}
+[[ "$(reseal "$(jq -r .baseFeePerGas <<<"$good" | cast to-dec)")" == "$(jq -r .blockHash <<<"$good")" ]] \
+  || { echo "resealing does not reproduce the payload's own block hash" >&2; exit 1; }
+wrong_fee="$(( $(jq -r .baseFeePerGas <<<"$good" | cast to-dec) + 1 ))"
+bad="$(jq -c --arg fee "$(cast to-hex "$wrong_fee")" --arg hash "$(reseal "$wrong_fee")" \
+  '.baseFeePerGas = $fee | .blockHash = $hash' <<<"$good")"
+response="$(engine engine_newPayloadV1 "$bad")"
+status="$(jq -r .status <<<"$response")"
 [[ "$status" == "INVALID" ]] || { echo "a wrong base fee was answered $status, expected INVALID" >&2; exit 1; }
+# And for the fee, not for the hash: an unsealed mutation is rejected either way.
+jq -r '.validationError // ""' <<<"$response" | grep -qi "base fee" \
+  || { echo "the rejection does not name the base fee: $response" >&2; exit 1; }
 
 # ... and the node is still alive and still takes the correct payload.
 status="$(engine engine_newPayloadV1 "$good" | jq -r .status)"
