@@ -10,18 +10,42 @@ pub type ChainSpec = scroll::DogeosChainSpec;
 
 /// Get chain spec
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    registered_spec(chain).cloned()
+    registered(chain).map(|entry| entry.spec.clone())
 }
 
-/// The registered DogeOS specification for a chain id, if the chain is one we know.
+/// A chain this build knows: its specification, and the builder blueprint that starts from that
+/// chain's own genesis document.
+struct RegisteredChain {
+    spec: &'static Arc<ChainSpec>,
+    blueprint: fn() -> dogeos_chainspec::DogeosChainSpecBuilder,
+}
+
+/// The one registry of known DogeOS chains.
 ///
-/// The chain ids come from the specifications themselves (mainnet and Chikyū from their frozen
-/// genesis documents) so a genesis change cannot leave a stale literal behind.
-fn registered_spec(chain: Chain) -> Option<&'static Arc<ChainSpec>> {
-    [&DOGEOS_MAINNET, &DOGEOS_CHIKYU, &DOGEOS_DEV]
-        .into_iter()
-        .map(|spec| &**spec)
-        .find(|spec| spec.chain == chain)
+/// The chain ids come from the specifications themselves, so a genesis change cannot leave a stale
+/// literal behind, and the blueprint lives beside the specification it belongs to: adding a chain
+/// here cannot leave the forced-hardfork path grafting that chain's configuration onto the
+/// development genesis.
+fn registered(chain: Chain) -> Option<RegisteredChain> {
+    use dogeos_chainspec::DogeosChainSpecBuilder;
+
+    [
+        (
+            &*DOGEOS_MAINNET,
+            DogeosChainSpecBuilder::dogeos_mainnet as fn() -> DogeosChainSpecBuilder,
+        ),
+        (
+            &*DOGEOS_CHIKYU,
+            DogeosChainSpecBuilder::dogeos_chikyu as fn() -> DogeosChainSpecBuilder,
+        ),
+        (
+            &*DOGEOS_DEV,
+            DogeosChainSpecBuilder::dev as fn() -> DogeosChainSpecBuilder,
+        ),
+    ]
+    .into_iter()
+    .find(|(spec, _)| spec.chain == chain)
+    .map(|(spec, blueprint)| RegisteredChain { spec, blueprint })
 }
 
 /// Get chain spec or build one from dev config as blueprint
@@ -42,6 +66,18 @@ where
 }
 
 /// Build a chain spec with a hardfork, enabling all hardforks up to the specified one.
+///
+/// A forced-hardfork spec starts from the registered specification of the chain being proven,
+/// because the base-fee rule reads that chain's own L2SystemConfig contract and anchoring opens
+/// that chain's own genesis header. An unregistered chain id keeps the development blueprint,
+/// whose `l2_system_config_address` is the zero address; the verifier refuses to derive a base fee
+/// from an unset L2SystemConfig address rather than reading the zero account and taking the
+/// default overhead.
+///
+/// The forced schedule covers every DogeOS execution fork, and only those. A chain whose genesis
+/// document declares `tsukiFeeParamsTime` keeps that activation: the EIP-1559 fee schedule is a
+/// property of the chain, not of the fork the caller is forcing, and the execution client reads it
+/// the same way. Forcing a fork therefore selects the execution rules, not the fee schedule.
 pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
@@ -49,25 +85,16 @@ pub fn build_chain_spec_force_hardfork(
     use crate::hardforks::Hardfork;
     use dogeos_chainspec::DogeosChainSpecBuilder;
 
-    // The base-fee rule reads the L2SystemConfig contract named by the chain's own
-    // `ScrollChainConfig`, and the EIP-1559 parameters come from the chain's own genesis document,
-    // so a forced-hardfork spec has to start from the specification of the chain being proven
-    // rather than always from the development chain. An unregistered chain id keeps the
-    // development blueprint, whose `l2_system_config_address` is the zero address.
-    let mut builder = if chain == DOGEOS_MAINNET.chain {
-        DogeosChainSpecBuilder::dogeos_mainnet()
-    } else if chain == DOGEOS_CHIKYU.chain {
-        DogeosChainSpecBuilder::dogeos_chikyu()
-    } else {
-        DogeosChainSpecBuilder::dev()
-    }
+    let registered = registered(chain);
+    let mut builder = registered
+        .as_ref()
+        .map_or(DogeosChainSpecBuilder::dev as fn() -> _, |entry| {
+            entry.blueprint
+        })()
     .chain(chain);
-    for fork in [
-        Hardfork::Feynman,
-        Hardfork::Galileo,
-        Hardfork::GalileoV2,
-        Hardfork::Tsuki,
-    ] {
+    // `Hardfork::dev()` is the schedule of every DogeOS execution fork, so a fork added upstream
+    // joins the forced schedule instead of silently keeping the blueprint chain's own activation.
+    for (fork, _) in Hardfork::dev() {
         builder = builder.with_fork(
             fork,
             if fork <= hardfork {
@@ -83,7 +110,7 @@ pub fn build_chain_spec_force_hardfork(
         hardfork
     );
 
-    let config = registered_spec(chain).map_or(DOGEOS_DEV.config, |spec| spec.config);
+    let config = registered.map_or(DOGEOS_DEV.config, |entry| entry.spec.config);
     Arc::new(builder.build(config))
 }
 
@@ -182,6 +209,43 @@ mod tests {
         assert_ne!(
             DOGEOS_CHIKYU.genesis_header().hash_slow(),
             DOGEOS_CHIKYU_GENESIS_HASH
+        );
+    }
+
+    /// A chain whose genesis document declares a delayed D48/E10 activation keeps it: the fee
+    /// schedule is a property of the chain, and the execution client reads it the same way, so
+    /// forcing a fork selects the execution rules and not the fee parameters. A guest that forced
+    /// the schedule instead would compute a different base fee from the node for such a chain.
+    #[test]
+    fn a_delayed_fee_params_activation_in_the_genesis_is_kept() {
+        use super::*;
+        use crate::hardforks::Hardfork;
+        use dogeos_chainspec::DogeosChainSpec;
+
+        let activation = 2_000_000_000;
+        let mut genesis = DOGEOS_MAINNET.genesis().clone();
+        genesis
+            .config
+            .extra_fields
+            .insert("tsukiFeeParamsTime".into(), activation.into());
+        let declared = DogeosChainSpec::from_custom_genesis(genesis.clone());
+
+        assert_eq!(
+            declared.base_fee_params_at_timestamp(activation - 1),
+            BaseFeeParams::new(8, 2)
+        );
+        assert_eq!(
+            declared.base_fee_params_at_timestamp(activation),
+            BaseFeeParams::new(48, 10)
+        );
+
+        // Forcing Tsuki does not move that activation forward.
+        let forced = build_chain_spec_force_hardfork(DOGEOS_MAINNET.chain, Hardfork::Tsuki);
+        assert!(forced.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
+        assert_eq!(
+            forced.base_fee_params_at_timestamp(0),
+            BaseFeeParams::new(48, 10),
+            "the registered mainnet genesis declares no delayed activation"
         );
     }
 

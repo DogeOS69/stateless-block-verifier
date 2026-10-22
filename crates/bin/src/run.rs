@@ -21,35 +21,78 @@ pub struct RunFileCommand {
     hardfork: Option<Hardfork>,
     /// Path to a JSON block header trusted as the parent of the lowest witness.
     ///
-    /// Required from Tsuki onwards, where the base-fee rule needs the parent of the first block.
+    /// Anchoring is required for any chain that schedules Tsuki, where the first block's base fee
+    /// and the chunk's previous proof endpoint both come from this header. The file takes either
+    /// the shape a witness's own `header` object has, so a witness's header can be copied
+    /// straight out of it, or `eth_getBlockByNumber`'s camelCase shape.
     #[arg(long)]
     parent_header: Option<PathBuf>,
+}
+
+/// A trusted parent header read from a file.
+///
+/// A witness serialises its header through `serde_bincode_compat`, whose field names are the
+/// struct's own (`parent_hash`, `base_fee_per_gas`, …), while an RPC block header uses JSON-RPC's
+/// camelCase (`parentHash`, `baseFeePerGas`, …). Both are accepted: the only way to anchor a chunk
+/// from the command line should not depend on which of the two the user had to hand.
+#[serde_with::serde_as]
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum ParentHeaderFile {
+    Witness(
+        #[serde_as(as = "sbv::primitives::types::consensus::serde_bincode_compat::Header")] Header,
+    ),
+    Rpc(Header),
+}
+
+impl From<ParentHeaderFile> for Header {
+    fn from(file: ParentHeaderFile) -> Self {
+        match file {
+            ParentHeaderFile::Witness(header) | ParentHeaderFile::Rpc(header) => header,
+        }
+    }
 }
 
 impl RunFileCommand {
     pub fn run(self) -> eyre::Result<()> {
         let parent = self.parent_header.as_deref().map(read_header).transpose()?;
 
-        // Witnesses are replayed in block order so that each one is anchored to the previous
-        // one's header, whatever order the shell expanded the paths in.
         let mut witnesses = self
             .path
             .iter()
             .map(|path| read_witness(path).map(|witness| (path.clone(), witness)))
             .collect::<eyre::Result<Vec<_>>>()?;
-        witnesses.sort_by_key(|(_, witness)| witness.header.number);
+        // Witnesses are replayed in block order so each one can be anchored to the previous one's
+        // header, whatever order the shell expanded the paths in.
+        witnesses.sort_by_key(|(_, witness)| (witness.chain_id, witness.header.number));
 
         let mut gas_used = 0;
+        // Only a witness that directly continues the previous one is anchored to it. A set of
+        // unrelated witnesses - several chains, or a gap - verifies each on its own, as it did
+        // before anchoring existed, rather than reporting a parent mismatch that says nothing
+        // about the files.
+        let mut previous: Option<&BlockWitness> = None;
         let mut parent = parent;
-        for (path, witness) in witnesses {
-            let header = witness.header.clone();
-            gas_used += run_witness(&path, witness, parent.as_ref(), self.hardfork)?.gas_used;
-            parent = Some(header);
+        for (path, witness) in &witnesses {
+            let anchor = match previous {
+                Some(previous) if continues(previous, witness) => Some(previous.header.clone()),
+                Some(_) => None,
+                None => parent.take(),
+            };
+            gas_used +=
+                run_witness(path, witness.clone(), anchor.as_ref(), self.hardfork)?.gas_used;
+            previous = Some(witness);
         }
         dev_info!("Gas used: {}", gas_used);
 
         Ok(())
     }
+}
+
+/// Whether `witness` is the block directly after `previous` on the same chain.
+fn continues(previous: &BlockWitness, witness: &BlockWitness) -> bool {
+    previous.chain_id == witness.chain_id
+        && previous.header.number.checked_add(1) == Some(witness.header.number)
 }
 
 fn read_witness(path: &Path) -> eyre::Result<BlockWitness> {
@@ -62,7 +105,7 @@ fn read_witness(path: &Path) -> eyre::Result<BlockWitness> {
 fn read_header(path: &Path) -> eyre::Result<Header> {
     let header = std::fs::File::open(path)?;
     let jd = &mut serde_json::Deserializer::from_reader(&header);
-    Ok(serde_path_to_error::deserialize::<_, Header>(jd)?)
+    Ok(serde_path_to_error::deserialize::<_, ParentHeaderFile>(jd)?.into())
 }
 
 #[cfg_attr(feature = "dev", tracing::instrument(skip_all, fields(path = %path.display()), err))]
@@ -74,10 +117,86 @@ fn run_witness(
 ) -> eyre::Result<VerifyResult> {
     let chain = Chain::from_id(witness.chain_id);
     let chain_spec = if let Some(hardfork) = hardfork {
-        dev_info!("Overriding hardfork to: {hardfork:?}");
+        // Forcing a fork below the chain's own replaces the rules the witness was produced under:
+        // below Tsuki it drops the parent requirement, the base-fee rule and the authenticated
+        // message-queue index, and it changes the EIP-1559 parameters.
+        dev_info!(
+            "Overriding hardfork to {hardfork:?}: the rules of the chain's own schedule do not apply"
+        );
         build_chain_spec_force_hardfork(chain, hardfork)
     } else {
         get_chain_spec(chain).context("chain not support")?
     };
     verify_catch_panics(witness, parent, chain_spec).inspect(|_| dev_info!("verified"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn witness(json: &str) -> BlockWitness {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// A glob over a directory holding several chains must not be chained into one run. Before
+    /// anchoring existed such a glob verified each witness on its own, and it still has to.
+    ///
+    /// The fixtures are Scroll witnesses, so this runs under the Scroll feature set only.
+    #[test]
+    fn only_the_directly_following_block_of_the_same_chain_is_an_anchor() {
+        let a = witness(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ));
+        let b = witness(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604671.json"
+        ));
+        let c = witness(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604672.json"
+        ));
+        let other_chain = witness(include_str!(
+            "../../../testdata/scroll/feynman/5343513301-1.json"
+        ));
+        assert_ne!(a.chain_id, other_chain.chain_id);
+
+        assert!(continues(&a, &b));
+        assert!(continues(&b, &c));
+        // A gap, a repeat, the wrong direction and a different chain are all unanchored.
+        assert!(!continues(&a, &c));
+        assert!(!continues(&a, &a));
+        assert!(!continues(&b, &a));
+        assert!(!continues(&a, &other_chain));
+        assert!(!continues(&other_chain, &a));
+    }
+
+    /// A witness's own `header` object is the obvious thing to copy into a `--parent-header` file,
+    /// and an RPC block is the other. Both have to parse, because they disagree on field names.
+    #[test]
+    fn a_parent_header_file_takes_either_shape() {
+        let witness: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ))
+        .unwrap();
+        let witness_shape = witness.get("header").expect("a witness carries its header");
+        assert!(
+            witness_shape.get("parent_hash").is_some(),
+            "the witness shape is the struct's own field names"
+        );
+
+        let header: Header = serde_json::from_value::<ParentHeaderFile>(witness_shape.clone())
+            .expect("the witness shape must parse")
+            .into();
+        assert_eq!(header.number, 19_604_670);
+        assert!(header.base_fee_per_gas.is_some());
+
+        // The same header in JSON-RPC's camelCase, as `eth_getBlockByNumber` returns it.
+        let rpc_shape = serde_json::to_value(&header).unwrap();
+        assert!(
+            rpc_shape.get("parentHash").is_some(),
+            "alloy's own encoding is camelCase"
+        );
+        let from_rpc: Header = serde_json::from_value::<ParentHeaderFile>(rpc_shape)
+            .expect("the RPC shape must parse")
+            .into();
+        assert_eq!(from_rpc, header);
+    }
 }

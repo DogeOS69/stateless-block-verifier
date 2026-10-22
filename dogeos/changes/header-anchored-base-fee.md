@@ -3,12 +3,15 @@
 ## Summary
 
 This overlay gives `verifier::run` a trusted parent header and makes the verifier
-enforce the protocol rules that a state-root check alone cannot see: the L2
-base-fee rule, the header's gas accounting, and the body commitments.
+enforce the protocol rules that a state-root check alone cannot see: the DogeOS
+header rules, the L2 base-fee rule, the header's gas accounting, and the body
+commitments.
 
-Proof endpoints become L2 **block hashes** rather than state roots, so the guest
-has to open the parent header of a chunk's first block, and everything the block
-hash commits to has to be checked against what the block actually executed.
+Proof endpoints become L2 **block hashes** rather than state roots. The guest
+therefore has to open the parent header of a chunk's first block, and the goal is
+that everything the block hash commits to is either checked against what the
+block executed or checked against the rule that fixes it. What remains
+unchecked is named under "Residue" below.
 
 ## Scope
 
@@ -17,8 +20,25 @@ hash commits to has to be checked against what the block actually executed.
   verifier checks that the first block is at `parent.number + 1`, that its
   `parent_hash` is `keccak(rlp(parent))`, and that the witness's
   `prev_state_root` is `parent.state_root`.
-- The parent is **required** once Tsuki is active at the first block's
-  timestamp. Earlier forks keep their historical behaviour and may pass `None`.
+- The parent is **required** whenever the chain spec schedules Tsuki at all,
+  however far in the future. The requirement deliberately does not look at the
+  witnesses' own timestamps: those are prover data, and a chunk could otherwise
+  backdate its first block below the activation and opt out of its own anchor.
+  For the same reason the requirement covers a chunk that spans the transition.
+  A chain that never activates Tsuki keeps its historical behaviour and may pass
+  `None`.
+- Per block, every fork: the shared `DogeosConsensus` header rules.
+  `validate_header` covers the fields the block hash commits to and nothing
+  reads during execution (difficulty, mix hash, coinbase, nonce, extra data, the
+  blob and withdrawals fields), the base-fee cap, and `gas_used <= gas_limit`.
+  `validate_header_against_parent` covers the parent link, the height, a
+  timestamp that does not move backwards, and the gas-limit bound — for each
+  consecutive pair, starting from the trusted parent. This is the **only** place
+  these rules run: callers that fold the result into public inputs rely on it and
+  must not repeat it. Two of the fields feed back into the base-fee rule, so both
+  have to be checked on every block and not only on the trusted parent:
+  `gas_limit` is one of the calculator's inputs, and the timestamp decides which
+  EIP-1559 parameters apply.
 - Per block, from Tsuki onwards: `header.base_fee_per_gas` must equal
   `ScrollBaseFeeProvider::next_block_base_fee(pre-state, parent, timestamp)`,
   the same calculator the execution client uses. The parent is the trusted
@@ -53,13 +73,30 @@ Three cases, deliberately distinct:
   overhead was never configured, so the calculator's default applies;
 - the witness does not resolve the account or the slot: the sparse trie aborts
   on unresolved node access and the proof fails. It must never fall back to the
-  default, because the prover chooses what the witness contains.
+  default, because the prover chooses what the witness contains;
+- the chain's configuration names **no** L2SystemConfig contract (the zero
+  address): there is no authenticated source for the overhead at all. The zero
+  address is normally an authenticated absence, which would read as the default
+  overhead while having verified nothing, so this is refused rather than
+  defaulted. It is reachable for an unregistered chain id, which keeps the
+  development blueprint's zero address.
+
+## Residue: what the block hash commits to and the verifier does not check
+
+The header rules fix every constant field, the cap and the gas and timestamp
+bounds, so what remains is the fields that are free by design and are pinned
+elsewhere: `state_root` (checked against execution), `transactions_root`,
+`receipts_root` and `logs_bloom` (checked against the body and the receipts),
+`gas_used` and `base_fee_per_gas` (checked by their own rules), `parent_hash`
+and `number` (checked against the parent). A timestamp that moves *forward*
+faster than real time is admissible to the guest, which has no wall clock; the
+host keeps the future-block check (`#[cfg(not(target_os = "zkvm"))]` upstream).
 
 ## Why this stays maintainable
 
 - The rules are the execution client's own: the base fee comes from
-  `dogeos-reth-evm`'s calculator and the body checks from `dogeos-reth-consensus`.
-  The overlay wires them in; it does not restate them.
+  `dogeos-reth-evm`'s calculator, and the header and body checks from
+  `dogeos-reth-consensus`. The overlay wires them in; it does not restate them.
 - The parent is an argument rather than a new witness field, so the witness
   encoding is unchanged and the caller that already knows the previous proof
   endpoint is the one that vouches for the header.
@@ -72,12 +109,16 @@ Three cases, deliberately distinct:
   slot, authenticated absent account, and an unresolved account node, which must
   abort. `the_recorded_lineages_follow_the_rule` replays the base fees the
   recorded Tsuki witnesses actually carry.
-- `verifier::scroll::anchor_tests` runs the anchoring, gas and body rules
-  through `run_host` over five consecutive real mainnet blocks: a chunk anchored
-  to its parent, two chunks meeting at a boundary block, a skipped block, a
-  repeated block, a substituted parent header, a pre-state root that is not the
-  parent's, a misreported `gas_used`, and a misreported transactions root,
-  receipts root and logs bloom.
+- `verifier::scroll::anchor_tests` runs the anchoring, header, gas and body
+  rules through `run_host` over five consecutive real mainnet blocks: a chunk
+  anchored to its parent, two chunks meeting at a boundary block, a skipped
+  block, a repeated block, a substituted parent header, a pre-state root that is
+  not the parent's, a gas-limit jump and a backwards timestamp (first block
+  against the trusted parent, mid-chunk, and last block), a `gas_used`
+  misreported in either direction, each body commitment with the failure it has
+  to produce, and each header rule. Two tests pin the anchoring gate itself: a
+  chain that schedules Tsuki in the future still requires the parent even for a
+  backdated chunk, and a chain that never activates Tsuki does not.
 - `chainspec::tests` pins the chain-id lookup and that mainnet's derived genesis
   header hashes to the published mainnet genesis hash, which is what lets a
   chain's first chunk be anchored to its genesis header. Chikyū is recorded as
@@ -99,8 +140,18 @@ the base-fee rule, for two independent reasons:
 `test_next_message_index_tsuki_empty_queue_witnesses` and
 `test_next_message_index_post_tsuki_transition` are therefore `#[ignore]`d, and
 `a_tsuki_chunk_without_an_l2_system_config_proof_fails_the_proof` pins the
-failure. Regenerating the corpus from a node whose execution witness carries
-slot `101` is what un-ignores them.
+failure. Un-ignoring them needs **three** things, not one: a corpus carrying the
+slot-101 proof, a corpus produced under the Tsuki fee parameters, and a trusted
+parent header at each call site. The first test already passes its chunk's real
+parent (block 11 anchors blocks 12 and 13); the second is a single block, so it
+also needs a header fixture for block 18. Each `#[ignore]` reason names what it
+is waiting for.
+
+Until then the Tsuki configuration this overlay ships — parent required, header
+rules rooted in the trusted parent, base fee enforced per block — is covered by
+vectors rather than by a replay: treat the corpus regeneration as a merge gate,
+not a note. `l2_message_queue_info`'s Tsuki branch, which lost its only replay
+with those tests, is driven directly in `base_fee_rule_tests` instead.
 
 ## Upkeep notes
 

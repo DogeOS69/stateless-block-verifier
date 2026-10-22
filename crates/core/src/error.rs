@@ -52,6 +52,45 @@ pub enum StatelessValidationError {
         block_number: u64,
     },
 
+    /// A block header does not satisfy the DogeOS header rules on its own.
+    #[error("invalid header for block {block_number}: {source}")]
+    InvalidHeader {
+        /// The number of the offending block.
+        block_number: u64,
+        /// The typed consensus error describing which rule the header breaks.
+        #[source]
+        source: sbv_primitives::types::reth::consensus::ConsensusError,
+    },
+
+    /// A block header does not satisfy the DogeOS header rules that relate it to its parent.
+    #[error("invalid header for block {block_number} against its parent: {source}")]
+    InvalidHeaderAgainstParent {
+        /// The number of the offending block.
+        block_number: u64,
+        /// The typed consensus error describing which rule the pair breaks.
+        #[source]
+        source: sbv_primitives::types::reth::consensus::ConsensusError,
+    },
+
+    /// The chain's L2SystemConfig contract address is unset, so the base-fee overhead has no
+    /// authenticated source.
+    #[error(
+        "chain {chain_id} has no L2SystemConfig address, so the base-fee overhead for block {block_number} cannot be read"
+    )]
+    L2SystemConfigUnconfigured {
+        /// The number of the block whose base fee could not be derived.
+        block_number: u64,
+        /// The chain the proof claims to be for.
+        chain_id: u64,
+    },
+
+    /// The parent header a block's base fee is derived from carries no base fee.
+    #[error("the parent of block {block_number} carries no base fee")]
+    ParentBaseFeeMissing {
+        /// The number of the block whose base fee could not be derived.
+        block_number: u64,
+    },
+
     /// The first block does not link to the trusted parent header.
     #[error("parent header mismatch: parent hash {got}, trusted parent {expected}")]
     ParentHashMismatch {
@@ -62,11 +101,11 @@ pub enum StatelessValidationError {
     },
 
     /// The first block does not directly follow the trusted parent header.
-    #[error("parent number mismatch: first block {got}, trusted parent {expected} + 1")]
+    #[error("parent number mismatch: first block {got}, expected {expected}")]
     ParentNumberMismatch {
         /// The number of the first block.
         got: u64,
-        /// The number of the trusted parent header.
+        /// The number the first block must have: one above the trusted parent's.
         expected: u64,
     },
 
