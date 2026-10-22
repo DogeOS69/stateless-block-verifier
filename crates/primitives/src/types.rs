@@ -29,9 +29,10 @@ pub mod evm {
     pub use alloy_evm::{Evm, EvmEnv, precompiles};
 
     pub use dogeos_reth_evm::{
-        ReceiptBuilderCtx, ScrollBlockExecutionCtx, ScrollBlockExecutor,
-        ScrollBlockExecutorFactory, ScrollDefaultPrecompilesFactory, ScrollEvmFactory,
-        ScrollReceiptBuilder, spec_id_at_timestamp_and_number,
+        DEFAULT_BASE_FEE_OVERHEAD, MAX_L2_BASE_FEE, ReceiptBuilderCtx, ScrollBaseFeeProvider,
+        ScrollBlockExecutionCtx, ScrollBlockExecutor, ScrollBlockExecutorFactory,
+        ScrollDefaultPrecompilesFactory, ScrollEvmFactory, ScrollReceiptBuilder,
+        spec_id_at_timestamp_and_number,
     };
 
     #[cfg(feature = "scroll-compress-info")]

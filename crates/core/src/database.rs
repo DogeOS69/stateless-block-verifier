@@ -99,3 +99,41 @@ impl Database for WitnessDatabase<'_> {
         Err(ProviderError::StateForNumberNotFound(block_number))
     }
 }
+
+/// A [`Database`] view used only to read the L2 base-fee overhead from a block's pre-state.
+///
+/// [`WitnessDatabase`] passes storage reads straight to [`SparseState::storage`], which assumes
+/// the account was loaded first: the account read is what builds the account's storage trie, and
+/// an account that is not in the state has no storage trie at all. EVM execution always loads an
+/// account before its slots, so [`WitnessDatabase`] can rely on that; the base-fee read is a bare
+/// slot read, so it has to establish the same order itself.
+///
+/// An authenticated absent account therefore reads as empty storage, which makes the base-fee
+/// calculator fall back to its default overhead. A witness that does not resolve the account or
+/// the slot at all is a different case: the sparse trie panics on unresolved node access, so the
+/// proof fails instead of silently taking the default.
+#[derive(Debug)]
+pub(crate) struct BaseFeeDatabase<'a>(pub(crate) WitnessDatabase<'a>);
+
+impl Database for BaseFeeDatabase<'_> {
+    type Error = ProviderError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.0.basic(address)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.0.code_by_hash(code_hash)
+    }
+
+    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        if self.0.basic(address)?.is_none() {
+            return Ok(U256::ZERO);
+        }
+        self.0.storage(address, slot)
+    }
+
+    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+        self.0.block_hash(block_number)
+    }
+}

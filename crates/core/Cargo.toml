@@ -26,6 +26,7 @@ sbv-primitives = { workspace = true, features = [
   "chainspec",
   "revm-types",
   "reth-evm-types",
+  "reth-consensus-types",
   "reth-execution-types",
   "evm-types",
 ] }

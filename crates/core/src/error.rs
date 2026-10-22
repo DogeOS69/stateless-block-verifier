@@ -45,6 +45,82 @@ pub enum StatelessValidationError {
         source: ProviderError,
     },
 
+    /// A chunk that must be anchored to a trusted parent header was verified without one.
+    #[error("missing trusted parent header for block {block_number}")]
+    MissingParentHeader {
+        /// The number of the first block in the chunk.
+        block_number: u64,
+    },
+
+    /// The first block does not link to the trusted parent header.
+    #[error("parent header mismatch: parent hash {got}, trusted parent {expected}")]
+    ParentHashMismatch {
+        /// The parent hash the first block's header claims.
+        got: B256,
+        /// The hash of the trusted parent header.
+        expected: B256,
+    },
+
+    /// The first block does not directly follow the trusted parent header.
+    #[error("parent number mismatch: first block {got}, trusted parent {expected} + 1")]
+    ParentNumberMismatch {
+        /// The number of the first block.
+        got: u64,
+        /// The number of the trusted parent header.
+        expected: u64,
+    },
+
+    /// The trusted parent header's state root is not the pre-state root the witness reveals.
+    #[error("parent state root mismatch: witness pre-state root {got}, trusted parent {expected}")]
+    ParentStateRootMismatch {
+        /// The pre-state root the first witness declares.
+        got: B256,
+        /// The state root of the trusted parent header.
+        expected: B256,
+    },
+
+    /// Reading the L2 base-fee overhead from a block's pre-state failed.
+    #[error("failed to read the base-fee overhead for block {block_number}: {source}")]
+    BaseFeeOverheadReadFailed {
+        /// The number of the block whose pre-state could not be read.
+        block_number: u64,
+        /// The typed provider/trie error returned by the read.
+        #[source]
+        source: ProviderError,
+    },
+
+    /// A block header's base fee is not the one the protocol rule derives from its parent.
+    #[error("base fee mismatch for block {block_number}: header {got}, expected {expected}")]
+    BaseFeeMismatch {
+        /// The number of the offending block.
+        block_number: u64,
+        /// The base fee the header claims.
+        got: u64,
+        /// The base fee the protocol rule derives from the parent header and the pre-state.
+        expected: u64,
+    },
+
+    /// A block header's `gas_used` is not the gas the block actually spent.
+    #[error("gas used mismatch for block {block_number}: header {got}, executed {expected}")]
+    GasUsedMismatch {
+        /// The number of the offending block.
+        block_number: u64,
+        /// The gas the header claims.
+        got: u64,
+        /// The gas the block's execution actually spent.
+        expected: u64,
+    },
+
+    /// A block's body does not match the roots committed in its header.
+    #[error("body validation failed for block {block_number}: {source}")]
+    BodyValidationFailed {
+        /// The number of the offending block.
+        block_number: u64,
+        /// The typed consensus error describing which commitment disagrees.
+        #[source]
+        source: sbv_primitives::types::reth::consensus::ConsensusError,
+    },
+
     /// The post-state root computed from the witness does not match the expected post-state root in the block header.
     #[error("mismatched post-state root: {got}\n {expected}")]
     PostStateRootMismatch {
