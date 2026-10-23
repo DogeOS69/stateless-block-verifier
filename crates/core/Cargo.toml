@@ -28,6 +28,7 @@ sbv-primitives = { workspace = true, features = [
   "reth-evm-types",
   "reth-execution-types",
   "evm-types",
+  "reth-consensus-types",
 ] }
 sbv-helpers.workspace = true
 sbv-trie.workspace = true
@@ -39,6 +40,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
+sha2 = { workspace = true, features = ["std"] }
 sbv-primitives.workspace = true
 
 [features]

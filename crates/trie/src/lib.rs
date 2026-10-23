@@ -3,8 +3,10 @@
 //! Most copied from <https://github.com/boundless-xyz/zeth/blob/db4c2d45233b59bdd2a85fcb7f9d36a12bebe0c1/crates/core/src/lib.rs#L104>
 //! under Apache License 2.0
 
-use alloy_trie::{EMPTY_ROOT_HASH, TrieAccount};
-pub use reth_trie_common::{HashedPostState, KeccakKeyHasher};
+pub use alloy_trie::EMPTY_ROOT_HASH;
+
+use alloy_trie::TrieAccount;
+pub use reth_trie_common::{HashedPostState, HashedStorage, KeccakKeyHasher};
 use risc0_ethereum_trie::CachedTrie;
 use sbv_primitives::{
     Address, B256, Bytes, U256,

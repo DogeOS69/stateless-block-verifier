@@ -1,0 +1,17 @@
+{
+  "generator": "scripts/tsuki-witness-corpus/generate.sh (hae-guest variant)",
+  "dogeos_reth_commit": "0020a8a364d1d060697696221b64171fde1aa1fd",
+  "chain_id": "6281971",
+  "genesis": "genesis-present.json",
+  "l2_system_config_address": "0x2669B071E88e272CBDA1e12182D8C754CB737400",
+  "system_config": "predeployed",
+  "overhead_blocks": true,
+  "base_fee_params": {
+    "max_change_denominator": 48,
+    "elasticity_multiplier": 10
+  },
+  "overhead_slot": 101,
+  "overhead_before_change": 15680000,
+  "overhead_after_change": 200000000,
+  "blocks": "7"
+}

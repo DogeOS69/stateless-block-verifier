@@ -1,8 +1,9 @@
 /// re-export types from alloy_consensus
 pub mod consensus {
     pub use alloy_consensus::{
-        Block, BlockHeader, Header, SignableTransaction, Transaction, TxEip1559, TxEip2930,
-        TxEip4844, TxEip4844Variant, TxEip4844WithSidecar, TxEip7702, TxLegacy, Typed2718,
+        Block, BlockHeader, EMPTY_OMMER_ROOT_HASH, Header, SignableTransaction, Transaction,
+        TxEip1559, TxEip2930, TxEip4844, TxEip4844Variant, TxEip4844WithSidecar, TxEip7702,
+        TxLegacy, Typed2718,
         transaction::{SignerRecoverable, TxHashRef},
     };
 
@@ -29,9 +30,10 @@ pub mod evm {
     pub use alloy_evm::{Evm, EvmEnv, precompiles};
 
     pub use dogeos_reth_evm::{
-        ReceiptBuilderCtx, ScrollBlockExecutionCtx, ScrollBlockExecutor,
-        ScrollBlockExecutorFactory, ScrollDefaultPrecompilesFactory, ScrollEvmFactory,
-        ScrollReceiptBuilder, spec_id_at_timestamp_and_number,
+        DEFAULT_BASE_FEE_OVERHEAD, MAX_L2_BASE_FEE, ReceiptBuilderCtx, ScrollBaseFeeProvider,
+        ScrollBlockExecutionCtx, ScrollBlockExecutor, ScrollBlockExecutorFactory,
+        ScrollDefaultPrecompilesFactory, ScrollEvmFactory, ScrollReceiptBuilder,
+        spec_id_at_timestamp_and_number,
     };
 
     #[cfg(feature = "scroll-compress-info")]

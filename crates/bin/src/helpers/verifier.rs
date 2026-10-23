@@ -4,7 +4,7 @@ use sbv::{
         verifier::{self, VerifyResult},
         witness::BlockWitness,
     },
-    primitives::chainspec::ChainSpec,
+    primitives::{chainspec::ChainSpec, types::Header},
 };
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -13,10 +13,11 @@ use std::{
 
 pub fn verify_catch_panics(
     witness: BlockWitness,
+    parent_header: Header,
     chain_spec: Arc<ChainSpec>,
 ) -> eyre::Result<VerifyResult> {
     catch_unwind(AssertUnwindSafe(|| {
-        verifier::run_host(&[witness], chain_spec)
+        verifier::run_host(&[witness], parent_header, chain_spec)
     }))
     .map_err(|e| {
         e.downcast_ref::<&str>()
