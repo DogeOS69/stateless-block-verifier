@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remove the `rkyv` Cargo feature, archive derives, and generated archived types from
   `sbv`, `sbv-core`, and `sbv-primitives`. Use the existing Serde serialization instead.
+- Remove `sbv-primitives::legacy_types` and the legacy `BlockWitness` conversions.
+  Use `sbv-core::BlockWitness` with the native Alloy/Scroll field types directly.
 
 ## [2.0.0] - 2024-09-04
 
