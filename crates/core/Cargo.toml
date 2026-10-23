@@ -28,6 +28,7 @@ sbv-primitives = { workspace = true, features = [
   "revm-types",
   "reth-evm-types",
   "reth-execution-types",
+  "evm-types",
 ] }
 sbv-helpers.workspace = true
 sbv-trie.workspace = true
@@ -43,12 +44,8 @@ sbv-primitives.workspace = true
 [features]
 rkyv = ["dep:rkyv", "sbv-primitives/rkyv"]
 
-scroll = [
-  "sbv-primitives/scroll-chainspec",
-  "sbv-primitives/scroll-evm-types",
-  "sbv-primitives/scroll-reth-evm-types",
-  "sbv-primitives/scroll-revm-types",
-]
+# Compatibility entry point; Scroll execution is unconditional.
+scroll = []
 scroll-compress-info = ["sbv-primitives/scroll-compress-info"]
 dev = ["dep:tracing", "sbv-primitives/dev", "sbv-trie/dev"]
 

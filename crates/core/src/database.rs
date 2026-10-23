@@ -11,14 +11,10 @@ use sbv_primitives::{
     },
 };
 use sbv_trie::SparseState;
-use std::collections::BTreeMap;
 
 /// A database that consists of account and storage information.
 #[derive(Debug)]
 pub struct WitnessDatabase<'a> {
-    /// Map of block numbers to block hashes.
-    /// This is used to service the `BLOCKHASH` opcode.
-    block_hashes_by_block_number: &'a BTreeMap<u64, B256>,
     /// Map of code hashes to bytecode.
     /// Used to fetch contract code needed during execution.
     bytecode: &'a B256Map<Bytecode>,
@@ -37,20 +33,8 @@ impl<'a> WitnessDatabase<'a> {
     ///    (e.g., using witness data and verifying against a parent block's state root).
     /// 2. The `bytecode` map contains all bytecode corresponding to code hashes present in the
     ///    account data within the `trie`.
-    /// 3. The `ancestor_hashes` map contains the block hashes for the relevant ancestor blocks (up
-    ///    to 256 including the current block number). It assumes these hashes correspond to a
-    ///    contiguous chain of blocks. The caller is responsible for verifying the contiguity and
-    ///    the block limit.
-    pub(crate) const fn new(
-        trie: &'a SparseState,
-        bytecode: &'a B256Map<Bytecode>,
-        ancestor_hashes: &'a BTreeMap<u64, B256>,
-    ) -> Self {
-        Self {
-            trie,
-            block_hashes_by_block_number: ancestor_hashes,
-            bytecode,
-        }
+    pub(crate) const fn new(trie: &'a SparseState, bytecode: &'a B256Map<Bytecode>) -> Self {
+        Self { trie, bytecode }
     }
 }
 
@@ -105,18 +89,13 @@ impl Database for WitnessDatabase<'_> {
         self.trie.storage(address, slot)
     }
 
-    /// Get block hash by block number from the provided ancestor hashes map.
-    ///
-    /// Returns an error if the hash for the given block number is not found in the map.
+    /// Scroll computes `BLOCKHASH` without consulting ancestor hashes in the database.
     #[cfg_attr(
         feature = "dev",
         tracing::instrument(level = "trace", skip(self), ret, err)
     )]
     fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
         dev_trace!("loading block hash");
-        self.block_hashes_by_block_number
-            .get(&block_number)
-            .copied()
-            .ok_or(ProviderError::StateForNumberNotFound(block_number))
+        Err(ProviderError::StateForNumberNotFound(block_number))
     }
 }

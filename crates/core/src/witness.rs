@@ -26,9 +26,6 @@ pub struct BlockWitness {
     pub transactions: Vec<TxEnvelope>,
     /// Withdrawals in the block.
     pub withdrawals: Option<Withdrawals>,
-    /// Last 256 Ancestor block hashes.
-    #[cfg(not(feature = "scroll"))]
-    pub block_hashes: Vec<B256>,
     /// Rlp encoded state trie nodes.
     #[serde(default)]
     pub states: Vec<Bytes>,
@@ -74,8 +71,6 @@ impl BlockWitness {
             withdrawals: self
                 .withdrawals
                 .map(|w| w.into_iter().map(Into::into).collect()),
-            #[cfg(not(feature = "scroll"))]
-            block_hashes: self.block_hashes,
             states: self.states,
             codes: self.codes,
         }
@@ -121,8 +116,6 @@ impl From<sbv_primitives::legacy_types::BlockWitness> for BlockWitness {
             withdrawals: legacy
                 .withdrawals
                 .map(|w| Withdrawals::new(w.into_iter().map(Into::into).collect())),
-            #[cfg(not(feature = "scroll"))]
-            block_hashes: legacy.block_hashes,
             states: legacy.states,
             codes: legacy.codes,
         }

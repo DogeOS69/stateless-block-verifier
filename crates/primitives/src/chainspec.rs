@@ -1,45 +1,14 @@
 use std::sync::Arc;
 
-pub use reth_chainspec::{self, *};
+pub use reth_chainspec::{Chain, EthChainSpec, ForkCondition, NamedChain};
 
-#[cfg(feature = "scroll-chainspec")]
 pub use dogeos_chainspec as scroll;
-#[cfg(feature = "scroll-chainspec")]
 pub use dogeos_chainspec::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET};
 
-/// An Ethereum chain specification.
-///
-/// A chain specification describes:
-///
-/// - Meta-information about the chain (the chain ID)
-/// - The genesis block of the chain (Genesis)
-/// - What hardforks are activated, and under which conditions
-#[cfg(not(feature = "scroll-chainspec"))]
-pub type ChainSpec = reth_chainspec::ChainSpec;
 /// Scroll chain spec type.
-#[cfg(feature = "scroll-chainspec")]
 pub type ChainSpec = scroll::DogeosChainSpec;
 
 /// Get chain spec
-#[cfg(not(feature = "scroll-chainspec"))]
-pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    if chain == Chain::from_named(NamedChain::Mainnet) {
-        return Some(MAINNET.clone());
-    }
-    if chain == Chain::from_named(NamedChain::Sepolia) {
-        return Some(SEPOLIA.clone());
-    }
-    if chain == Chain::from_named(NamedChain::Holesky) {
-        return Some(HOLESKY.clone());
-    }
-    if chain == Chain::dev() {
-        return Some(DEV.clone());
-    }
-    None
-}
-
-/// Get chain spec
-#[cfg(feature = "scroll-chainspec")]
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
     match chain.id() {
         6_281_971 => Some(DOGEOS_CHIKYU.clone()),
@@ -55,13 +24,6 @@ where
     F: Fn(&mut ChainSpec),
 {
     get_chain_spec(chain).unwrap_or_else(|| {
-        #[cfg(not(feature = "scroll-chainspec"))]
-        let mut spec = {
-            let mut spec = (**DEV).clone();
-            spec.chain = chain;
-            spec
-        };
-        #[cfg(feature = "scroll-chainspec")]
         let mut spec = {
             let mut spec = (**DOGEOS_DEV).clone();
             spec.inner.chain = chain;
@@ -74,7 +36,6 @@ where
 }
 
 /// Build a chain spec with a hardfork, enabling all hardforks up to the specified one.
-#[cfg(feature = "scroll-chainspec")]
 pub fn build_chain_spec_force_hardfork(
     chain: Chain,
     hardfork: crate::hardforks::Hardfork,
@@ -107,101 +68,30 @@ pub fn build_chain_spec_force_hardfork(
     Arc::new(builder.build(DOGEOS_DEV.config))
 }
 
-/// Build a chain spec with a hardfork, enabling all hardforks up to the specified one.
-#[cfg(not(feature = "scroll"))]
-pub fn build_chain_spec_force_hardfork(
-    chain: Chain,
-    hardfork: crate::hardforks::Hardfork,
-) -> Arc<ChainSpec> {
-    use crate::{U256, hardforks::Hardfork};
-    use std::sync::{Arc, LazyLock};
-
-    static BASE_HARDFORKS: LazyLock<ChainHardforks> = LazyLock::new(|| {
-        ChainHardforks::new(vec![(
-            EthereumHardfork::Frontier.boxed(),
-            ForkCondition::Block(0),
-        )])
-    });
-
-    let mut hardforks = BASE_HARDFORKS.clone();
-
-    if hardfork >= Hardfork::Homestead {
-        hardforks.insert(hardfork, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Dao {
-        hardforks.insert(Hardfork::Dao, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Tangerine {
-        hardforks.insert(Hardfork::Tangerine, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::SpuriousDragon {
-        hardforks.insert(Hardfork::SpuriousDragon, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Byzantium {
-        hardforks.insert(Hardfork::Byzantium, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Constantinople {
-        hardforks.insert(Hardfork::Constantinople, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Petersburg {
-        hardforks.insert(Hardfork::Petersburg, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Istanbul {
-        hardforks.insert(Hardfork::Istanbul, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Berlin {
-        hardforks.insert(Hardfork::Berlin, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::London {
-        hardforks.insert(Hardfork::London, ForkCondition::Block(0));
-    }
-
-    if hardfork >= Hardfork::Paris {
-        hardforks.insert(
-            Hardfork::Paris,
-            ForkCondition::TTD {
-                activation_block_number: 0,
-                fork_block: Some(0),
-                total_difficulty: U256::ZERO,
-            },
-        );
-    }
-
-    if hardfork >= Hardfork::Shanghai {
-        hardforks.insert(Hardfork::Shanghai, ForkCondition::Timestamp(0));
-    }
-
-    if hardfork >= Hardfork::Cancun {
-        hardforks.insert(Hardfork::Cancun, ForkCondition::Timestamp(0));
-    }
-
-    if hardfork >= Hardfork::Prague {
-        hardforks.insert(Hardfork::Prague, ForkCondition::Timestamp(0));
-    }
-
-    if hardfork >= Hardfork::Osaka {
-        hardforks.insert(Hardfork::Osaka, ForkCondition::Timestamp(0));
-    }
-
-    Arc::new(ChainSpec {
-        chain,
-        hardforks,
-        ..Default::default()
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "scroll-chainspec")]
+    #[test]
+    fn known_chain_specs_are_dogeos_only() {
+        use super::*;
+
+        for (chain, spec) in [
+            (Chain::from_id(6_281_971), &*DOGEOS_CHIKYU),
+            (Chain::from_id(0xff), &*DOGEOS_MAINNET),
+            (Chain::dev(), &*DOGEOS_DEV),
+        ] {
+            let resolved = get_chain_spec(chain).expect("known DogeOS chain");
+            assert!(Arc::ptr_eq(&resolved, spec));
+        }
+
+        for chain in [
+            NamedChain::Mainnet,
+            NamedChain::Sepolia,
+            NamedChain::Holesky,
+        ] {
+            assert!(get_chain_spec(Chain::from_named(chain)).is_none());
+        }
+    }
+
     #[test]
     fn test_build_chain_spec() {
         use super::*;
@@ -217,7 +107,6 @@ mod tests {
         assert!(chain_spec.is_fork_active_at_block(Hardfork::Galileo, 10));
     }
 
-    #[cfg(feature = "scroll-chainspec")]
     #[test]
     fn force_tsuki_chain_spec_activates_tsuki() {
         use super::*;

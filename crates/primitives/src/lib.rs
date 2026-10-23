@@ -1,18 +1,14 @@
 //! Stateless Block Verifier primitives library.
 
-/// The spec of an Ethereum network
+/// The spec of a DogeOS network
 #[cfg(feature = "chainspec")]
 pub mod chainspec;
 
-/// Ethereum fork types
+/// DogeOS hardforks and shared fork traits
 #[cfg(feature = "hardforks")]
 pub mod hardforks {
     pub use reth_ethereum_forks::{Hardfork as HardforkTrait, *};
 
-    #[cfg(not(feature = "scroll"))]
-    pub use reth_ethereum_forks::EthereumHardfork as Hardfork;
-
-    #[cfg(feature = "scroll-hardforks")]
     pub use dogeos_hardforks::{DogeosHardfork as Hardfork, DogeosHardforks};
 }
 

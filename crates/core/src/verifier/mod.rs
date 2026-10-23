@@ -11,17 +11,11 @@ use sbv_primitives::{
 use sbv_trie::{HashedPostState, KeccakKeyHasher, SparseState};
 use std::sync::Arc;
 
-#[cfg(feature = "scroll")]
 mod scroll;
 
-#[cfg(feature = "scroll")]
 pub use scroll::*;
 
-#[cfg(not(feature = "scroll"))]
-mod ethereum;
 use crate::error::StatelessValidationError;
-#[cfg(not(feature = "scroll"))]
-pub use ethereum::*;
 
 /// Result of the block witness verification process.
 #[derive(Debug)]
@@ -36,7 +30,6 @@ pub struct VerifyResult {
     pub gas_used: u64,
 
     /// Withdrawal root after executing the witnesses.
-    #[cfg(feature = "scroll")]
     pub withdraw_root: B256,
     /// Next L2-to-L1 message index from Scroll's L2MessageQueue after executing the witnesses.
     ///
@@ -44,7 +37,6 @@ pub struct VerifyResult {
     /// storage proof is not guaranteed to be part of the witness (and may be absent), so this is
     /// the sentinel `0` — **not** the real on-chain value. Consumers that fold this into proof
     /// public inputs must not treat a pre-Tsuki `0` as authoritative. See `l2_message_queue_info`.
-    #[cfg(feature = "scroll")]
     pub next_message_index: u64,
 }
 
@@ -52,7 +44,7 @@ pub struct VerifyResult {
 pub fn run(
     witnesses: &[BlockWitness],
     chain_spec: Arc<ChainSpec>,
-    #[cfg(feature = "scroll")] compression_infos: Vec<Vec<(U256, usize)>>,
+    compression_infos: Vec<Vec<(U256, usize)>>,
 ) -> Result<VerifyResult, StatelessValidationError> {
     if witnesses.is_empty() {
         return Err(StatelessValidationError::EmptyWitnesses);
@@ -66,7 +58,6 @@ pub fn run(
     if !witnesses.has_seq_state_root() {
         return Err(StatelessValidationError::InvalidAncestorChain);
     }
-    #[cfg(feature = "scroll")]
     if compression_infos.len() != witnesses.len()
         || !witnesses
             .iter()
@@ -117,22 +108,10 @@ pub fn run(
 
     let mut gas_used = 0;
 
-    #[cfg(not(feature = "scroll"))]
-    let compression_infos = std::iter::repeat_n::<Vec<(U256, usize)>>(vec![], blocks.len());
+    for (block, compression_infos) in blocks.iter().zip_eq(compression_infos) {
+        let db = WitnessDatabase::new(&trie, &bytecode);
 
-    #[cfg(not(feature = "scroll"))]
-    let block_hashes = import_block_hashes(witnesses);
-    #[cfg(feature = "scroll")]
-    let block_hashes = Default::default();
-
-    for (block, _compression_infos) in blocks.iter().zip_eq(compression_infos) {
-        let db = WitnessDatabase::new(&trie, &bytecode, &block_hashes);
-
-        #[cfg(not(feature = "scroll"))]
-        let executor = EvmExecutor::new(chain_spec.clone(), db, block);
-
-        #[cfg(feature = "scroll")]
-        let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(_compression_infos));
+        let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(compression_infos));
 
         let output = executor.execute().map_err(|source| {
             StatelessValidationError::StatelessExecutionFailed {
@@ -161,7 +140,6 @@ pub fn run(
         }
     }
 
-    #[cfg(feature = "scroll")]
     let (withdraw_root, next_message_index) = l2_message_queue_info(
         &chain_spec,
         blocks.last().as_ref().expect("witnesses can not be empty"),
@@ -174,14 +152,11 @@ pub fn run(
         pre_state_root,
         post_state_root,
         gas_used,
-        #[cfg(feature = "scroll")]
         withdraw_root,
-        #[cfg(feature = "scroll")]
         next_message_index,
     })
 }
 
-#[cfg(feature = "scroll")]
 fn map_l2_message_queue_info_error(
     block_number: u64,
     source: sbv_primitives::types::reth::evm::execute::ProviderError,
@@ -192,13 +167,13 @@ fn map_l2_message_queue_info_error(
     }
 }
 
-#[cfg(all(test, feature = "scroll"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use sbv_primitives::types::reth::evm::execute::ProviderError;
     use std::io;
 
-    /// Runs under the guest feature set (`scroll` without `scroll-compress-info`): mismatched
+    /// Runs under the guest feature set (without `scroll-compress-info`): mismatched
     /// compression infos are rejected before execution, so placeholder values suffice.
     #[test]
     fn compression_info_count_mismatches_are_rejected_without_compress_info_feature() {
