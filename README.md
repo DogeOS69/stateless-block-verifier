@@ -41,6 +41,35 @@ with an earlier SBV revision before upgrading. Current witness JSON and binary S
 continue to use the upstream `serde_bincode_compat` adapters: native headers omit optional fields
 and native transaction envelopes use tagged Serde representations that are unsuitable for bincode.
 
+## Guest chain specification
+
+`sbv_primitives::chainspec::build_chain_spec_force_hardfork(chain, hardfork)` constructs a native
+DogeOS chain spec without deserializing genesis JSON or hashing the genesis allocations. It
+retains the chain's execution configuration (including the L2SystemConfig address), Ethereum
+baseline, fee schedule and canonical genesis header. `is_registered_chain` also avoids loading
+genesis. Unknown chain IDs keep the development fallback and its existing verification limits.
+
+For a chain with an independent `tsukiFeeParamsTime`, configure it explicitly in the guest:
+
+```rust
+use sbv_primitives::{chainspec::GuestChainConfig, hardforks::Hardfork};
+
+let mut config = GuestChainConfig::for_chain(chain);
+config.tsuki_fee_params_time = Some(activation_timestamp);
+let chain_spec = config.build_force_hardfork(Hardfork::Tsuki);
+```
+
+The explicit fee timestamp is preserved even when execution forks are forced. `None` follows
+the forced Tsuki condition; `Some(0)` activates D48/E10 from timestamp zero. These inputs must
+be fixed by the guest program or authenticated by the caller, not taken from unchecked witnesses.
+The currently pinned networks have no explicit fee-time override.
+
+Guest specs omit genesis allocations and JSON extension fields; use the host-only
+`get_chain_spec` / `get_chain_spec_or_build` APIs when a full genesis is required. On dependency
+updates, keep `crates/primitives/src/chainspec/genesis.rs` and the native chain registry in sync
+with the upstream specs. Host parity tests compare headers, chain configuration and fork/fee
+schedules against the pinned implementation.
+
 ## DogeOS dependency pins
 
 The workspace uses the following release tags, matching dogeos-reth's dependency pins:
