@@ -11,7 +11,7 @@ repository.workspace = true
 
 [dependencies]
 sbv-core.workspace = true
-sbv-primitives.workspace = true
+sbv-primitives = { workspace = true, features = ["scroll-all"] }
 sbv-trie.workspace = true
 sbv-helpers.workspace = true
 sbv-utils.workspace = true
@@ -21,7 +21,8 @@ rkyv = ["sbv-primitives/rkyv"]
 
 c-kzg = ["sbv-primitives/c-kzg"]
 
-scroll = ["sbv-core/scroll", "sbv-primitives/scroll-all", "sbv-utils/scroll"]
+# Compatibility entry point; the umbrella crate always uses Scroll.
+scroll = []
 scroll-compress-info = ["sbv-core/scroll-compress-info"]
 dev = ["sbv-core/dev", "sbv-primitives/dev", "sbv-trie/dev"]
 

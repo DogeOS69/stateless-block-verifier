@@ -4014,26 +4014,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reth-evm-ethereum"
-version = "2.0.0"
-source = "git+https://github.com/DogeOS69/reth.git?rev=d37ca9f9c783be40956b718e9de3f943a30671c3#d37ca9f9c783be40956b718e9de3f943a30671c3"
-dependencies = [
- "alloy-consensus",
- "alloy-eips",
- "alloy-evm",
- "alloy-primitives",
- "alloy-rpc-types-engine",
- "reth-chainspec",
- "reth-ethereum-forks",
- "reth-ethereum-primitives",
- "reth-evm",
- "reth-execution-types",
- "reth-primitives-traits",
- "reth-storage-errors",
- "revm",
-]
-
-[[package]]
 name = "reth-execution-errors"
 version = "2.0.0"
 source = "git+https://github.com/DogeOS69/reth.git?rev=d37ca9f9c783be40956b718e9de3f943a30671c3#d37ca9f9c783be40956b718e9de3f943a30671c3"
@@ -4786,7 +4766,6 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-evm",
- "alloy-network",
  "alloy-primitives",
  "alloy-rpc-types-debug",
  "alloy-rpc-types-eth",
@@ -4801,9 +4780,7 @@ dependencies = [
  "reth-chainspec",
  "reth-consensus",
  "reth-ethereum-forks",
- "reth-ethereum-primitives",
  "reth-evm",
- "reth-evm-ethereum",
  "reth-execution-types",
  "reth-primitives-traits",
  "revm",
@@ -4833,7 +4810,6 @@ dependencies = [
  "alloy-provider",
  "alloy-transport",
  "async-trait",
- "futures",
  "sbv-core",
  "sbv-primitives",
  "serde",

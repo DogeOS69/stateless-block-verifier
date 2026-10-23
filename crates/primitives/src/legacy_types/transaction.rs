@@ -9,7 +9,6 @@ use crate::{
         eips::Typed2718,
     },
 };
-#[cfg(feature = "scroll")]
 use dogeos_protocol_types::ScrollTransaction;
 
 /// Transaction object used in RPC
@@ -118,7 +117,6 @@ pub struct Transaction {
     #[doc(alias = "tx_type")]
     pub transaction_type: u8,
     /// L1Msg queueIndex
-    #[cfg(feature = "scroll")]
     #[cfg_attr(feature = "rkyv", rkyv(attr(doc = "L1Msg queueIndex")))]
     #[serde(default, with = "alloy_serde::quantity::opt")]
     pub queue_index: Option<u64>,
@@ -126,7 +124,6 @@ pub struct Transaction {
 
 impl From<TxEnvelope> for Transaction {
     fn from(tx: TxEnvelope) -> Self {
-        #[cfg(feature = "scroll")]
         use crate::types::consensus::TxHashRef;
 
         Self {
@@ -141,10 +138,7 @@ impl From<TxEnvelope> for Transaction {
             max_priority_fee_per_gas: tx.max_priority_fee_per_gas(),
             max_fee_per_blob_gas: tx.max_fee_per_blob_gas(),
             input: tx.input().clone(),
-            #[cfg(feature = "scroll")]
             signature: tx.signature().map(Into::into),
-            #[cfg(not(feature = "scroll"))]
-            signature: Some((*tx.signature()).into()),
             chain_id: tx.chain_id(),
             blob_versioned_hashes: tx.blob_versioned_hashes().map(ToOwned::to_owned),
             access_list: tx.access_list().cloned().map(Into::into),
@@ -152,7 +146,6 @@ impl From<TxEnvelope> for Transaction {
                 .authorization_list()
                 .map(|list| list.iter().cloned().map(Into::into).collect()),
             transaction_type: tx.ty(),
-            #[cfg(feature = "scroll")]
             queue_index: tx.queue_index(),
         }
     }
@@ -212,31 +205,6 @@ impl TryFrom<Transaction> for TxEnvelope {
 
                 tx.into_signed(sig).into()
             }
-            #[cfg(not(feature = "scroll"))]
-            0x03 => {
-                use crate::types::consensus::TxEip4844;
-                let sig = tx.signature.expect("missing signature").into();
-                let tx = TxEip4844 {
-                    chain_id: tx.chain_id.expect("missing chain_id"),
-                    nonce: tx.nonce,
-                    max_fee_per_gas: tx.max_fee_per_gas,
-                    max_priority_fee_per_gas: tx
-                        .max_priority_fee_per_gas
-                        .expect("missing max_priority_fee_per_gas"),
-                    gas_limit: tx.gas,
-                    to: tx.to.expect("missing to"),
-                    value: tx.value,
-                    input: tx.input,
-                    access_list: tx.access_list.expect("missing access_list").into(),
-                    blob_versioned_hashes: tx
-                        .blob_versioned_hashes
-                        .expect("missing blob_versioned_hashes"),
-                    max_fee_per_blob_gas: tx
-                        .max_fee_per_blob_gas
-                        .expect("missing max_fee_per_blob_gas"),
-                };
-                tx.into_signed(sig).into()
-            }
             0x04 => {
                 let sig = tx.signature.expect("missing signature").into();
                 let tx = TxEip7702 {
@@ -260,7 +228,6 @@ impl TryFrom<Transaction> for TxEnvelope {
                 };
                 tx.into_signed(sig).into()
             }
-            #[cfg(feature = "scroll")]
             0x7e => {
                 use crate::types::consensus::TxL1Message;
                 let tx = TxL1Message {

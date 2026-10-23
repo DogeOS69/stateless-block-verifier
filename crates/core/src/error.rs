@@ -2,7 +2,6 @@
 
 use sbv_primitives::{B256, types::reth::evm::block::BlockExecutionError};
 
-#[cfg(feature = "scroll")]
 use sbv_primitives::types::reth::evm::execute::ProviderError;
 
 /// Errors that can occur during stateless validation.
@@ -37,7 +36,6 @@ pub enum StatelessValidationError {
     },
 
     /// Reading Scroll's post-execution L2 message queue outputs failed.
-    #[cfg(feature = "scroll")]
     #[error("failed to read L2 message queue info after block {block_number}: {source}")]
     L2MessageQueueInfoFailed {
         /// The number of the block whose post-state queue values could not be read.
@@ -57,7 +55,6 @@ pub enum StatelessValidationError {
     },
 
     /// The number of compression infos for a block does not match its transaction count.
-    #[cfg(feature = "scroll")]
     #[error("invalid compression infos")]
     InvalidCompressionInfos,
 
@@ -87,7 +84,6 @@ mod tests {
         assert!(source.downcast_ref::<BlockExecutionError>().is_some());
     }
 
-    #[cfg(feature = "scroll")]
     #[test]
     fn queue_error_retains_block_context_and_source_chain() {
         let error = StatelessValidationError::L2MessageQueueInfoFailed {

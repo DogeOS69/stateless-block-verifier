@@ -66,22 +66,14 @@ jobs:
           components: clippy
       - name: cargo cache
         uses: Swatinem/rust-cache@v2
-      - name: check sbv-core scroll feature in isolation
-        run: cargo check -p sbv-core --features scroll
+      - name: check sbv-core guest dependencies in isolation
+        run: cargo check -p sbv-core --no-default-features --locked
+      - name: check consensus-only compatibility feature in isolation
+        run: cargo check -p sbv-primitives --no-default-features --features scroll-reth-consensus-types --locked
       - name: clippy default
-        run: cargo clippy --workspace -- -D warnings
-      - name: clippy dev
-        run: cargo clippy --workspace --features dev -- -D warnings
-      - name: clippy scroll
-        run: cargo clippy --workspace --features scroll -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: clippy all
-        run: cargo clippy --workspace --all-features -- -D warnings
-      - name: clippy test
-        run: cargo clippy --workspace --tests -- -D warnings
-      - name: clippy test scroll
-        run: cargo clippy --workspace --tests --features scroll -- -D warnings
-      - name: clippy test all
-        run: cargo clippy --workspace --tests --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
     needs: [ clippy, skip_check ]
@@ -101,9 +93,9 @@ jobs:
           toolchain: "1.96"
       - name: cargo cache
         uses: Swatinem/rust-cache@v2
-      - name: cargo test scroll
-        run: cargo test --workspace --features scroll,scroll-all
+      - name: cargo test default Scroll mode
+        run: cargo test --workspace --locked
       - name: cargo test sbv-core under the guest feature set
-        run: cargo test -p sbv-core --features scroll
-      - name: cargo test ethereum
-        run: cargo test --workspace --features ethereum-all
+        run: cargo test -p sbv-core --no-default-features --locked
+      - name: cargo test all features and compatibility aliases
+        run: cargo test --workspace --all-features --locked

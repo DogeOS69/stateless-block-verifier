@@ -26,9 +26,6 @@ pub struct DumpWitnessCommand {
         value_parser = clap::value_parser!(NumberOrRange),
     )]
     pub block: NumberOrRange,
-    #[arg(long, help = "Ancestor blocks", default_value_t = 256)]
-    #[cfg(not(feature = "scroll"))]
-    pub ancestors: usize,
     #[arg(long, help = "Output directory", default_value_os_t = std::env::current_dir().unwrap())]
     pub out_dir: PathBuf,
     #[command(flatten)]
@@ -44,21 +41,9 @@ impl DumpWitnessCommand {
         }
         std::fs::create_dir_all(&self.out_dir).context("create output directory")?;
 
-        #[cfg(not(feature = "scroll"))]
-        if self.ancestors < 1 || self.ancestors > 256 {
-            eyre::bail!("Invalid ancestor blocks count");
-        }
-
         let provider = self.rpc_args.into_provider();
 
-        let ok = dump_range(
-            provider,
-            self.block.into(),
-            self.out_dir,
-            #[cfg(not(feature = "scroll"))]
-            self.ancestors,
-        )
-        .await;
+        let ok = dump_range(provider, self.block.into(), self.out_dir).await;
 
         let elapsed = HumanDuration(started.elapsed());
         if ok {
@@ -78,7 +63,6 @@ async fn dump_range(
     provider: RootProvider<Network>,
     range: std::ops::Range<u64>,
     out_dir: PathBuf,
-    #[cfg(not(feature = "scroll"))] ancestors: usize,
 ) -> bool {
     let mut set = tokio::task::JoinSet::new();
 
@@ -93,17 +77,7 @@ async fn dump_range(
         let progress_bar = multi_progress_bar.add(ProgressBar::new_spinner());
         let handle = {
             let progress_bar = progress_bar.clone();
-            set.spawn(async move {
-                dump(
-                    provider,
-                    block,
-                    out_dir.as_path(),
-                    #[cfg(not(feature = "scroll"))]
-                    ancestors,
-                    progress_bar,
-                )
-                .await
-            })
+            set.spawn(async move { dump(provider, block, out_dir.as_path(), progress_bar).await })
         };
         pb_map.insert(handle.id(), progress_bar);
     }
@@ -129,7 +103,6 @@ async fn dump(
     provider: RootProvider<Network>,
     block: u64,
     out_dir: &Path,
-    #[cfg(not(feature = "scroll"))] ancestors: usize,
     pb: ProgressBar,
 ) -> bool {
     pb.set_style(PB_STYLE.clone());
@@ -137,15 +110,7 @@ async fn dump(
     pb.set_message(format!("Dumping witness for block {block}"));
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    match dump_inner(
-        provider,
-        block,
-        out_dir,
-        #[cfg(not(feature = "scroll"))]
-        ancestors,
-    )
-    .await
-    {
+    match dump_inner(provider, block, out_dir).await {
         Ok((path, size)) => {
             pb.set_prefix(format!("{COMPLETED_ICON}"));
             pb.finish_with_message(format!("Witness: {size} saved to {p}", p = path.display()));
@@ -163,16 +128,7 @@ async fn dump_inner(
     provider: RootProvider<Network>,
     block: u64,
     out_dir: &Path,
-    #[cfg(not(feature = "scroll"))] ancestors: usize,
 ) -> eyre::Result<(PathBuf, HumanBytes)> {
-    #[cfg(not(feature = "scroll"))]
-    let witness = provider
-        .dump_block_witness(block)
-        .ancestors(ancestors)
-        .send()
-        .await?
-        .context("block not found")?;
-    #[cfg(feature = "scroll")]
     let witness = provider
         .dump_block_witness(block)
         .send()

@@ -6,12 +6,6 @@ pub mod consensus {
         transaction::{SignerRecoverable, TxHashRef},
     };
 
-    #[cfg(not(feature = "scroll"))]
-    pub use alloy_consensus::{TxType, TypedTransaction};
-    #[cfg(not(feature = "scroll"))]
-    /// The Ethereum [EIP-2718] Transaction Envelope.
-    pub type TxEnvelope = alloy_consensus::EthereumTxEnvelope<TxEip4844>;
-    #[cfg(feature = "scroll")]
     pub use dogeos_protocol_types::{
         ScrollReceiptEnvelope as ReceiptEnvelope, ScrollTransaction,
         ScrollTxEnvelope as TxEnvelope, ScrollTxType as TxType,
@@ -20,10 +14,7 @@ pub mod consensus {
 
     /// Stable serde representations used by persisted block witnesses.
     pub mod serde_bincode_compat {
-        #[cfg(not(feature = "scroll"))]
-        pub use alloy_consensus::serde_bincode_compat::EthereumTxEnvelope as TxEnvelope;
         pub use alloy_consensus::serde_bincode_compat::Header;
-        #[cfg(feature = "scroll")]
         pub use dogeos_protocol_types::serde_bincode_compat::ScrollTxEnvelope as TxEnvelope;
     }
 }
@@ -37,7 +28,6 @@ pub use alloy_eips as eips;
 pub mod evm {
     pub use alloy_evm::{Evm, EvmEnv, precompiles};
 
-    #[cfg(feature = "scroll-evm-types")]
     pub use dogeos_reth_evm::{
         ReceiptBuilderCtx, ScrollBlockExecutionCtx, ScrollBlockExecutor,
         ScrollBlockExecutorFactory, ScrollDefaultPrecompilesFactory, ScrollEvmFactory,
@@ -47,18 +37,13 @@ pub mod evm {
     #[cfg(feature = "scroll-compress-info")]
     pub use dogeos_reth_evm::{compute_compressed_size, compute_compression_ratio};
 
-    #[cfg(any(feature = "scroll-evm-types", feature = "scroll-compress-info"))]
     pub use dogeos_reth_evm::{ScrollTxCompressionInfo, ScrollTxCompressionInfos};
 }
 
-/// re-export types from alloy_network
+/// Scroll RPC network type
 #[cfg(feature = "network-types")]
 pub mod network {
     /// Network definition
-    #[cfg(not(feature = "scroll"))]
-    pub type Network = alloy_network::Ethereum;
-    /// Network definition
-    #[cfg(feature = "scroll-network-types")]
     pub type Network = dogeos_rpc_types::Scroll;
 }
 #[cfg(feature = "network-types")]
@@ -74,10 +59,6 @@ pub mod revm {
         state::AccountInfo,
     };
 
-    #[cfg(not(feature = "scroll"))]
-    pub use revm::primitives::hardfork::SpecId;
-
-    #[cfg(feature = "scroll-revm-types")]
     pub use revm_scroll::{
         ScrollSpecId as SpecId, builder::ScrollCfgExt, precompile::ScrollPrecompileProvider,
     };
@@ -90,7 +71,6 @@ pub mod reth {
     pub mod consensus {
         pub use reth_consensus::*;
 
-        #[cfg(feature = "scroll-reth-consensus-types")]
         pub use dogeos_reth_consensus::{
             DogeosConsensus, DogeosConsensusError, validate_gas_limit_against_parent,
         };
@@ -100,28 +80,19 @@ pub mod reth {
     pub mod primitives {
         pub use reth_primitives_traits::{RecoveredBlock, SealedBlock, SealedHeader};
 
-        #[cfg(feature = "scroll")]
         pub use dogeos_reth_primitives::{
             DogeosBlock as Block, DogeosBlockBody as BlockBody, DogeosPrimitives as EthPrimitives,
             ScrollReceipt as Receipt, ScrollTransactionSigned as TransactionSigned,
-        };
-        #[cfg(not(feature = "scroll"))]
-        pub use reth_ethereum_primitives::{
-            Block, BlockBody, EthPrimitives, Receipt, TransactionSigned,
         };
 
         pub use reth_primitives_traits::transaction::signed::SignedTransaction;
     }
 
-    /// Re-export types from `reth-evm-ethereum`
+    /// Re-export Reth execution traits and the Scroll receipt builder
     #[cfg(feature = "reth-evm-types")]
     pub mod evm {
         pub use reth_evm::*;
 
-        #[cfg(not(feature = "scroll"))]
-        pub use reth_evm_ethereum::{EthEvm, EthEvmConfig, RethReceiptBuilder};
-
-        #[cfg(feature = "scroll-reth-evm-types")]
         pub use crate::types::scroll::RethReceiptBuilder;
     }
 
@@ -129,7 +100,7 @@ pub mod reth {
     pub use reth_execution_types as execution_types;
 }
 
-#[cfg(feature = "scroll-reth-evm-types")]
+#[cfg(feature = "reth-evm-types")]
 mod scroll {
     use alloy_consensus::{Eip658Value, Receipt};
     use alloy_evm::Evm;
@@ -182,9 +153,6 @@ pub mod rpc {
     pub use alloy_rpc_types_eth::{Header, TransactionTrait};
 
     pub use alloy_rpc_types_debug::ExecutionWitness;
-    #[cfg(not(feature = "scroll"))]
-    pub use alloy_rpc_types_eth::{Transaction, TransactionReceipt, TransactionRequest};
-    #[cfg(feature = "scroll")]
     pub use dogeos_rpc_types::{
         ScrollRpcTransaction as Transaction, ScrollTransactionReceipt as TransactionReceipt,
         ScrollTransactionRequest as TransactionRequest,

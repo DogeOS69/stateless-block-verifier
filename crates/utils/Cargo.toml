@@ -17,19 +17,15 @@ alloy-provider.workspace = true
 alloy-transport.workspace = true
 
 async-trait.workspace = true
-futures.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 
-sbv-primitives = { workspace = true, features = ["network-types"] }
+sbv-primitives = { workspace = true, features = ["network-types", "scroll-compress-info"] }
 sbv-core.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
 
 [features]
-scroll = [
-  "sbv-primitives/scroll-network-types",
-  "sbv-primitives/scroll-compress-info",
-  "sbv-core/scroll",
-]
+# Compatibility entry point; RPC helpers always use Scroll.
+scroll = []
