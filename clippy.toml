@@ -9,6 +9,8 @@ allowed-duplicate-crates = [
     "digest",
     "fastrlp",
     "getrandom",
+    "hashbrown",
+    "indexmap",
     "itertools",
     "rand",
     "rand_chacha",
@@ -28,11 +30,6 @@ allowed-duplicate-crates = [
     "windows_x86_64_gnu",
     "windows_x86_64_gnullvm",
     "windows_x86_64_msvc",
-
-    # revisit these when fully remove rkyv
-    "foldhash",
-    "hashbrown",
-    "indexmap",
 
     # FIXME: remove after upgrade risc0-ethereum-trie
     "alloy-trie",

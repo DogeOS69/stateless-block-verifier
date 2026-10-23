@@ -12,9 +12,6 @@ pub mod hardforks {
     pub use dogeos_hardforks::{DogeosHardfork as Hardfork, DogeosHardforks};
 }
 
-/// Legacy Types definition leave for backward compatibility
-pub mod legacy_types;
-
 /// Types definition
 pub mod types;
 
