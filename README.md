@@ -43,15 +43,15 @@ and native transaction envelopes use tagged Serde representations that are unsui
 
 ## DogeOS dependency pins
 
-The workspace uses one Git revision per DogeOS repository, matching dogeos-reth's dependency pins:
+The workspace uses the following release tags, matching dogeos-reth's dependency pins:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `54d2b2c161ed7fa50d377e26a8adc1f2dcff0350` |
-| `DogeOS69/reth` | `42b56304227691327c44415262d23ff680a44ffb` |
+| `DogeOS69/dogeos-reth` | `tsuki-v0.9` (`581afef2e3960a4e3e755c9a56412f89b2e2f265`) |
+| `DogeOS69/reth` | `v2.0.0-dogeos-20261023.1` (`42b56304227691327c44415262d23ff680a44ffb`) |
 | `DogeOS69/dogeos-revm` | `tsuki-v0.9` (`d4ac4dac66e5648099a0277eb63f606fc04caff7`) |
 
-The dogeos-revm tag is pinned by commit to share the same Cargo source as dogeos-reth.
+Direct and transitive dependencies use the same tags and Git sources; `Cargo.lock` pins their commits.
 The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
 blocks. Witnesses must include the account/storage proof or an authenticated absence. Legacy
 Feynman replay tests are ignored because their witnesses lack this proof; general verifier
