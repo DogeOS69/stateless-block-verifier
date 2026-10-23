@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-pub use reth_chainspec::{Chain, EthChainSpec, ForkCondition, NamedChain};
+pub use reth_chainspec::{
+    BaseFeeParams, Chain, EthChainSpec, ForkCondition, Hardforks, NamedChain,
+};
 
 pub use dogeos_chainspec as scroll;
 pub use dogeos_chainspec::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET};
@@ -169,12 +171,8 @@ mod tests {
     fn known_chain_specs_are_dogeos_only() {
         use super::*;
 
-        for (chain, spec) in [
-            (Chain::from_id(6_281_971), &*DOGEOS_CHIKYU),
-            (Chain::from_id(1_122_005), &*DOGEOS_MAINNET),
-            (Chain::dev(), &*DOGEOS_DEV),
-        ] {
-            let resolved = get_chain_spec(chain).expect("known DogeOS chain");
+        for spec in [&*DOGEOS_CHIKYU, &*DOGEOS_MAINNET, &*DOGEOS_DEV] {
+            let resolved = get_chain_spec(spec.chain()).expect("known DogeOS chain");
             assert!(Arc::ptr_eq(&resolved, spec));
         }
 

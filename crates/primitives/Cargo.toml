@@ -48,7 +48,7 @@ sbv-helpers.workspace = true
 c-kzg = ["revm/c-kzg"]
 
 # Optional capabilities; all exported chain types are Scroll/DogeOS types.
-chainspec = ["dep:alloy-genesis", "dep:reth-chainspec", "dep:dogeos-chainspec", "hardforks"]
+chainspec = ["dep:reth-chainspec", "dep:dogeos-chainspec", "dep:alloy-genesis", "hardforks"]
 evm-types = ["dep:alloy-evm", "dep:dogeos-reth-evm"]
 network-types = []
 hardforks = ["dep:reth-ethereum-forks", "dep:dogeos-hardforks", "dogeos-hardforks/serde"]

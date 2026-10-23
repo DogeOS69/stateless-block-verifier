@@ -852,7 +852,6 @@ mod base_fee_rule_tests {
     fn base_fee_db<'a>(
         state: &'a SparseState,
         bytecode: &'a B256Map<Bytecode>,
-        block_hashes: &'a BTreeMap<u64, B256>,
     ) -> BaseFeeDatabase<'a> {
         BaseFeeDatabase(WitnessDatabase::new(state, bytecode))
     }
@@ -864,7 +863,7 @@ mod base_fee_rule_tests {
     fn a_cold_sparse_state_resolves_the_account_before_its_slot() {
         let witness = tsuki_witness_11();
         let state = cold_state(&witness);
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
         let withdraw_root = base_fee_db(&state, &bytecode)
             .storage(L2_MESSAGE_QUEUE, WITHDRAW_TRIE_ROOT_SLOT)
@@ -897,7 +896,7 @@ mod base_fee_rule_tests {
             "the full witness must carry exactly the node being withheld"
         );
         let state = cold_state(&withheld);
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
         // The account itself still resolves: only its storage trie is unreachable.
         assert!(state.account(L2_MESSAGE_QUEUE).unwrap().is_some());
 
@@ -927,16 +926,9 @@ mod base_fee_rule_tests {
         witness.header.timestamp = parent.timestamp + 1;
         witness.header.base_fee_per_gas = Some(expected.wrapping_add_signed(delta));
         let block = witness.build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
-        let result = check_base_fee(
-            &chain_spec,
-            &state,
-            &bytecode,
-            &block_hashes,
-            &parent,
-            &block,
-        );
+        let result = check_base_fee(&chain_spec, &state, &bytecode, &parent, &block);
 
         if delta == 0 {
             result.expect("the derived fee must be accepted");
@@ -967,7 +959,7 @@ mod base_fee_rule_tests {
         witness.header.timestamp = parent.timestamp + 1;
         witness.header.base_fee_per_gas = None;
         let block = witness.build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
         assert!(matches!(
             check_base_fee(&chain_spec, &state, &bytecode, &parent, &block),
@@ -985,7 +977,7 @@ mod base_fee_rule_tests {
         assert_eq!(system_config(&chain_spec), Address::ZERO);
         let state = state_with(&[(OTHER_ACCOUNT, &[])]);
         let block = tsuki_witness_11().build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
         assert!(matches!(
             check_base_fee(
@@ -1009,7 +1001,7 @@ mod base_fee_rule_tests {
         let mut parent = parent(1_000_000_000, GAS_LIMIT / 10);
         parent.base_fee_per_gas = None;
         let block = tsuki_witness_11().build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
         assert!(matches!(
             check_base_fee(&chain_spec, &state, &bytecode, &parent, &block),
@@ -1151,17 +1143,10 @@ mod base_fee_rule_tests {
         witness.header.timestamp = parent.timestamp + 1;
         witness.header.base_fee_per_gas = Some(expected);
         let block = witness.build_reth_block().unwrap();
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
 
-        check_base_fee(
-            &chain_spec,
-            &state,
-            &bytecode,
-            &block_hashes,
-            &parent,
-            &block,
-        )
-        .expect("the development chain must verify, not be refused");
+        check_base_fee(&chain_spec, &state, &bytecode, &parent, &block)
+            .expect("the development chain must verify, not be refused");
     }
 
     /// A real block whose header carries the given base fee and timestamp. Only the fields the
@@ -1214,9 +1199,9 @@ mod base_fee_rule_tests {
             system_config,
             &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(OVERHEAD))],
         )]);
-        let (bytecode) = (B256Map::default(), BTreeMap::new());
+        let bytecode = B256Map::default();
         let check = |state: &SparseState, parent: &Header, block: &RecoveredBlock<Block>| {
-            check_base_fee(&chain_spec, state, &bytecode, &block_hashes, parent, block)
+            check_base_fee(&chain_spec, state, &bytecode, parent, block)
         };
 
         // Block n derives its fee from the overhead its own pre-state holds.
@@ -1312,12 +1297,12 @@ mod regenerated_corpus_tests {
         ($dir:literal, $($block:literal),+) => {
             (
                 serde_json::from_str::<Header>(include_str!(concat!(
-                    "../../../../testdata/dogeos/base-fee-rule/", $dir, "/parent.json"
+                    "../../../testdata/dogeos/base-fee-rule/", $dir, "/parent.json"
                 )))
                 .expect("the genesis header"),
                 [$(
                     serde_json::from_str::<BlockWitness>(include_str!(concat!(
-                        "../../../../testdata/dogeos/base-fee-rule/", $dir, "/", $block, ".json"
+                        "../../../testdata/dogeos/base-fee-rule/", $dir, "/", $block, ".json"
                     )))
                     .expect("a block witness"),
                 )+],
@@ -1359,8 +1344,8 @@ mod regenerated_corpus_tests {
             chain_spec.chain_config().l1_config.l2_system_config_address,
             &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(overhead))],
         )]);
-        let (bytecode, block_hashes) = (Default::default(), BTreeMap::new());
-        let mut db = BaseFeeDatabase(WitnessDatabase::new(&state, &bytecode, &block_hashes));
+        let bytecode = Default::default();
+        let mut db = BaseFeeDatabase(WitnessDatabase::new(&state, &bytecode));
         ScrollBaseFeeProvider::new(chain_spec)
             .next_block_base_fee(&mut db, parent, witness.header.timestamp)
             .unwrap()
@@ -2129,7 +2114,7 @@ mod host_tests {
         .map(|json| serde_json::from_str::<BlockWitness>(json).unwrap())
     }
 
-    fn honestcompression_infos(witnesses: &[BlockWitness]) -> Vec<Vec<(U256, usize)>> {
+    fn honest_compression_infos(witnesses: &[BlockWitness]) -> Vec<Vec<(U256, usize)>> {
         witnesses
             .iter()
             .map(BlockWitness::compression_infos)
@@ -2163,7 +2148,7 @@ mod host_tests {
         .unwrap();
         let txs = witness.transactions.len();
         assert!(txs > 0);
-        let mut infos = honestcompression_infos(std::slice::from_ref(&witness));
+        let mut infos = honest_compression_infos(std::slice::from_ref(&witness));
         resize_infos(&mut infos[0], delta);
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
@@ -2195,7 +2180,7 @@ mod host_tests {
         #[case] delta: isize,
     ) {
         let witnesses = tsuki_empty_queue_witnesses();
-        let mut infos = honestcompression_infos(&witnesses);
+        let mut infos = honest_compression_infos(&witnesses);
         resize_infos(&mut infos[index], delta);
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
@@ -2212,7 +2197,7 @@ mod host_tests {
     #[case::too_many(4)]
     fn compression_infos_block_count_mismatch_is_an_error(#[case] vectors: usize) {
         let witnesses = tsuki_empty_queue_witnesses();
-        let mut infos = honestcompression_infos(&witnesses);
+        let mut infos = honest_compression_infos(&witnesses);
         infos.resize(vectors, Vec::new());
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);

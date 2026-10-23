@@ -149,8 +149,6 @@ mod tests {
 
     /// A glob over a directory holding several chains must not be chained into one run. Before
     /// anchoring existed such a glob verified each witness on its own, and it still has to.
-    ///
-    /// The fixtures are Scroll witnesses, so this runs under the Scroll feature set only.
     #[test]
     fn only_the_directly_following_block_of_the_same_chain_is_an_anchor() {
         let a = witness(include_str!(

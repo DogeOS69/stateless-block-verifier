@@ -14,8 +14,12 @@ cargo build --bin sbv-cli --release
 Pass one or more JSON witness files to `run`. Without `--hardfork`, the CLI selects the
 chain specification from the witness chain ID (DogeOS mainnet, Chikyu, or dev).
 
+For a chain whose schedule includes Tsuki, pass the trusted parent header of the first witness
+with `--parent-header`. The file accepts a witness's `header` object or an RPC block header.
+Subsequent consecutive witnesses of the same chain are anchored to the preceding witness.
+
 ```shell
-./target/release/sbv-cli run witness.json
+./target/release/sbv-cli run --parent-header parent.json witness.json
 ```
 
 Use `--hardfork` to verify historical Scroll fixtures with the matching rules:
