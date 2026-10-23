@@ -1,12 +1,6 @@
 use crate::{Address, U8, U256};
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "rkyv",
-    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize),
-    rkyv(derive(Debug, Hash, PartialEq, Eq))
-)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Authorization {
     /// The chain ID of the authorization.
     pub chain_id: U256,
@@ -18,13 +12,7 @@ pub struct Authorization {
 }
 
 /// A signed EIP-7702 authorization.
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "rkyv",
-    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize),
-    rkyv(derive(Debug, Hash, PartialEq, Eq))
-)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SignedAuthorization {
     /// Inner authorization.
     pub inner: Authorization,

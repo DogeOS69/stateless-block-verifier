@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - rpc mode defaults to use legacy storage trace, using the flag `--flatten-proofs` to enable support of flatten proofs
   ([#58](https://github.com/scroll-tech/stateless-block-verifier/pull/58))
 
+### Removed
+
+- Remove the `rkyv` Cargo feature, archive derives, and generated archived types from
+  `sbv`, `sbv-core`, and `sbv-primitives`. Use the existing Serde serialization instead.
 
 ## [2.0.0] - 2024-09-04
 

@@ -17,8 +17,6 @@ sbv-helpers.workspace = true
 sbv-utils.workspace = true
 
 [features]
-rkyv = ["sbv-primitives/rkyv"]
-
 c-kzg = ["sbv-primitives/c-kzg"]
 
 # Compatibility entry point; the umbrella crate always uses Scroll.

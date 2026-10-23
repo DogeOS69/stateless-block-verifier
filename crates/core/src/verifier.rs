@@ -29,11 +29,6 @@ pub const NEXT_MESSAGE_INDEX_SLOT: U256 = U256::from_limbs([1, 0, 0, 0]);
 
 /// State commit mode for the block witness verification process.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(
-    feature = "rkyv",
-    derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize),
-    rkyv(derive(Debug, Hash, PartialEq, Eq))
-)]
 pub enum StateCommitMode {
     /// Commit state by chunk.
     Chunk,

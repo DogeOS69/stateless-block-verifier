@@ -1,31 +1,13 @@
 use crate::U256;
 
 /// An Ethereum ECDSA signature.
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "rkyv",
-    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize),
-    rkyv(derive(Debug, Hash, PartialEq, Eq))
-)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Signature {
     /// The R field of the signature; the point on the curve.
-    #[cfg_attr(
-        feature = "rkyv",
-        rkyv(attr(doc = "The R field of the signature; the point on the curve."))
-    )]
     pub r: U256,
     /// The S field of the signature; the point on the curve.
-    #[cfg_attr(
-        feature = "rkyv",
-        rkyv(attr(doc = "The S field of the signature; the point on the curve."))
-    )]
     pub s: U256,
     /// The parity of the Y coordinate of the public key.
-    #[cfg_attr(
-        feature = "rkyv",
-        rkyv(attr(doc = "The parity of the Y coordinate of the public key."))
-    )]
     pub y_parity: bool,
 }
 
