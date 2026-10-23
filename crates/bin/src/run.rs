@@ -21,15 +21,13 @@ pub struct RunFileCommand {
     hardfork: Option<Hardfork>,
     /// Path to a JSON block header trusted as the parent of the lowest witness.
     ///
-    /// Anchoring is required for any chain that schedules Tsuki, where the first block's base fee
-    /// and the chunk's previous proof endpoint both come from this header. The file takes either
+    /// Required for every fork. The file takes either
     /// the shape a witness's own `header` object has, so a witness's header can be copied
     /// straight out of it, or `eth_getBlockByNumber`'s camelCase shape.
     ///
-    /// It anchors the lowest witness given, ordered by chain id and then by block number, so pass
-    /// it with the witnesses of one chain rather than with a glob over several.
+    /// It anchors the lowest witness given. All witnesses must be consecutive blocks of one chain.
     #[arg(long)]
-    parent_header: Option<PathBuf>,
+    parent_header: PathBuf,
 }
 
 /// A trusted parent header in the shape a witness's own `header` object has: the field names of
@@ -66,7 +64,7 @@ fn parse_parent_header(json: &[u8]) -> eyre::Result<Header> {
 
 impl RunFileCommand {
     pub fn run(self) -> eyre::Result<()> {
-        let parent = self.parent_header.as_deref().map(read_header).transpose()?;
+        let mut parent_header = read_header(&self.parent_header)?;
 
         let mut witnesses = self
             .path
@@ -77,22 +75,14 @@ impl RunFileCommand {
         // header, whatever order the shell expanded the paths in.
         witnesses.sort_by_key(|(_, witness)| (witness.chain_id, witness.header.number));
 
+        for pair in witnesses.windows(2) {
+            ensure_continues(&pair[0].1, &pair[1].1)?;
+        }
+
         let mut gas_used = 0;
-        // Only a witness that directly continues the previous one is anchored to it. A set of
-        // unrelated witnesses - several chains, or a gap - verifies each on its own, as it did
-        // before anchoring existed, rather than reporting a parent mismatch that says nothing
-        // about the files.
-        let mut previous: Option<&BlockWitness> = None;
-        let mut parent = parent;
         for (path, witness) in &witnesses {
-            let anchor = match previous {
-                Some(previous) if continues(previous, witness) => Some(previous.header.clone()),
-                Some(_) => None,
-                None => parent.take(),
-            };
-            gas_used +=
-                run_witness(path, witness.clone(), anchor.as_ref(), self.hardfork)?.gas_used;
-            previous = Some(witness);
+            gas_used += run_witness(path, witness.clone(), parent_header, self.hardfork)?.gas_used;
+            parent_header = witness.header.clone();
         }
         dev_info!("Gas used: {}", gas_used);
 
@@ -100,10 +90,18 @@ impl RunFileCommand {
     }
 }
 
-/// Whether `witness` is the block directly after `previous` on the same chain.
-fn continues(previous: &BlockWitness, witness: &BlockWitness) -> bool {
-    previous.chain_id == witness.chain_id
-        && previous.header.number.checked_add(1) == Some(witness.header.number)
+/// Require a continuous sequence so every witness has an authenticated parent.
+fn ensure_continues(previous: &BlockWitness, witness: &BlockWitness) -> eyre::Result<()> {
+    eyre::ensure!(
+        previous.chain_id == witness.chain_id
+            && previous.header.number.checked_add(1) == Some(witness.header.number),
+        "block {} on chain {} does not directly follow block {} on chain {}; provide consecutive witnesses of one chain",
+        witness.header.number,
+        witness.chain_id,
+        previous.header.number,
+        previous.chain_id,
+    );
+    Ok(())
 }
 
 fn read_witness(path: &Path) -> eyre::Result<BlockWitness> {
@@ -121,13 +119,13 @@ fn read_header(path: &Path) -> eyre::Result<Header> {
 fn run_witness(
     path: &Path,
     witness: BlockWitness,
-    parent: Option<&Header>,
+    parent_header: Header,
     hardfork: Option<Hardfork>,
 ) -> eyre::Result<VerifyResult> {
     let chain = Chain::from_id(witness.chain_id);
     let chain_spec = if let Some(hardfork) = hardfork {
         // Forcing a fork below the chain's own replaces the rules the witness was produced under:
-        // below Tsuki it drops the parent requirement, the base-fee rule and the authenticated
+        // below Tsuki it drops the base-fee rule and the authenticated
         // message-queue index, and it changes the EIP-1559 parameters.
         dev_info!(
             "Overriding hardfork to {hardfork:?}: the rules of the chain's own schedule do not apply"
@@ -136,19 +134,45 @@ fn run_witness(
     } else {
         get_chain_spec(chain).context("chain not support")?
     };
-    verify_catch_panics(witness, parent, chain_spec).inspect(|_| dev_info!("verified"))
+    verify_catch_panics(witness, parent_header, chain_spec).inspect(|_| dev_info!("verified"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_parent_header_is_required_even_for_a_forced_pre_tsuki_fork() {
+        use clap::Parser;
+
+        let error =
+            crate::Cli::try_parse_from(["sbv-cli", "run", "--hardfork", "feynman", "witness.json"])
+                .err()
+                .expect("every fork requires a parent header");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        assert!(error.to_string().contains("--parent-header"));
+        assert!(
+            crate::Cli::try_parse_from([
+                "sbv-cli",
+                "run",
+                "--hardfork",
+                "feynman",
+                "--parent-header",
+                "parent.json",
+                "witness.json",
+            ])
+            .is_ok()
+        );
+    }
+
     fn witness(json: &str) -> BlockWitness {
         serde_json::from_str(json).unwrap()
     }
 
-    /// A glob over a directory holding several chains must not be chained into one run. Before
-    /// anchoring existed such a glob verified each witness on its own, and it still has to.
+    /// A gap, repeat, reversed range or second chain cannot reuse the preceding witness as parent.
     #[test]
     fn only_the_directly_following_block_of_the_same_chain_is_an_anchor() {
         let a = witness(include_str!(
@@ -165,14 +189,13 @@ mod tests {
         ));
         assert_ne!(a.chain_id, other_chain.chain_id);
 
-        assert!(continues(&a, &b));
-        assert!(continues(&b, &c));
-        // A gap, a repeat, the wrong direction and a different chain are all unanchored.
-        assert!(!continues(&a, &c));
-        assert!(!continues(&a, &a));
-        assert!(!continues(&b, &a));
-        assert!(!continues(&a, &other_chain));
-        assert!(!continues(&other_chain, &a));
+        ensure_continues(&a, &b).unwrap();
+        ensure_continues(&b, &c).unwrap();
+        assert!(ensure_continues(&a, &c).is_err());
+        assert!(ensure_continues(&a, &a).is_err());
+        assert!(ensure_continues(&b, &a).is_err());
+        assert!(ensure_continues(&a, &other_chain).is_err());
+        assert!(ensure_continues(&other_chain, &a).is_err());
     }
 
     /// A witness's own `header` object is the obvious thing to copy into a `--parent-header` file,

@@ -2,7 +2,7 @@
 
 ## Summary
 
-This overlay gives `verifier::run` a trusted parent header and makes the verifier
+This overlay gives `verifier::VerifyContext` a trusted parent header and makes the verifier
 enforce the protocol rules that a state-root check alone cannot see: the DogeOS
 header rules, the L2 base-fee rule, the header's gas accounting, and the body
 commitments.
@@ -15,18 +15,15 @@ unchecked is named under "Residue" below.
 
 ## Scope
 
-- `verifier::run` and `verifier::run_host` take `parent: Option<&Header>`, the
-  trusted header of the block before the first witness. When it is supplied, the
-  verifier checks that the first block is at `parent.number + 1`, that its
-  `parent_hash` is `keccak(rlp(parent))`, and that the witness's
-  `prev_state_root` is `parent.state_root`.
-- The parent is **required** whenever the chain spec schedules Tsuki at all,
-  however far in the future. The requirement deliberately does not look at the
-  witnesses' own timestamps: those are prover data, and a chunk could otherwise
-  backdate its first block below the activation and opt out of its own anchor.
-  For the same reason the requirement covers a chunk that spans the transition.
-  A chain that never activates Tsuki keeps its historical behaviour and may pass
-  `None`.
+- `verifier::VerifyContext` groups `witnesses`, an owned `parent_header: Header`,
+  `chain_spec`, and `compression_infos`. Its `verify(self)` method consumes the
+  context and destructures it at entry. `verifier::run_host` computes compression
+  information and delegates to that method, also taking an owned parent header.
+- The trusted parent is **required on every fork**, including chains that never
+  activate Tsuki. The verifier checks that the first block is at
+  `parent_header.number + 1`, that its `parent_hash` is
+  `keccak(rlp(parent_header))`, and that the witness's `prev_state_root` is
+  `parent_header.state_root`. No timestamp or fork schedule can bypass this anchor.
 - Per block, every fork: the shared `DogeosConsensus` header rules.
   `validate_header` covers the fields the block hash commits to and nothing
   reads during execution (difficulty, mix hash, coinbase, nonce, extra data, the
@@ -58,7 +55,9 @@ unchecked is named under "Residue" below.
   genesis document declares. It previously mapped DogeOS mainnet to chain id
   `0xff`, which the frozen mainnet genesis document does not use.
 - `sbv-cli run` replays its witnesses in block order, anchoring each one to the
-  previous one's header, and takes `--parent-header <path>` for the first.
+  previous one's header, and requires `--parent-header <path>` for the first on
+  every fork. All witnesses must form one consecutive sequence on the same chain;
+  gaps, duplicates, and mixed chains are rejected.
 
 ## The overhead read
 
@@ -108,28 +107,32 @@ apply, which `the_gas_rules_survive_a_future_dated_header` pins.
 - The rules are the execution client's own: the base fee comes from
   `dogeos-reth-evm`'s calculator, and the header and body checks from
   `dogeos-reth-consensus`. The overlay wires them in; it does not restate them.
-- The parent is an argument rather than a new witness field, so the witness
+- The parent is a required context field rather than a new witness field, so the witness
   encoding is unchanged and the caller that already knows the previous proof
   endpoint is the one that vouches for the header.
 
 ## Test coverage
 
-- `verifier::scroll::base_fee_rule_tests` mirrors the vectors in dogeos-reth's
+- `verifier::base_fee_rule_tests` mirrors the vectors in dogeos-reth's
   own `base_fee.rs` (mainnet parameters, default overhead, configured overhead,
   cap, saturation) and adds the witness-specific cases: authenticated empty
   slot, authenticated absent account, and an unresolved account node, which must
   abort. `the_recorded_lineages_follow_the_rule` replays the base fees the
   recorded Tsuki witnesses actually carry.
-- `verifier::scroll::anchor_tests` runs the anchoring, header, gas and body
+- `verifier::anchor_tests` runs the anchoring, header, gas and body
   rules through `run_host` over five consecutive real mainnet blocks: a chunk
   anchored to its parent, two chunks meeting at a boundary block, a skipped
   block, a repeated block, a substituted parent header, a pre-state root that is
   not the parent's, a gas-limit jump and a backwards timestamp (first block
   against the trusted parent, mid-chunk, and last block), a `gas_used`
   misreported in either direction, each body commitment with the failure it has
-  to produce, and each header rule. Two tests pin the anchoring gate itself: a
-  chain that schedules Tsuki in the future still requires the parent even for a
-  backdated chunk, and a chain that never activates Tsuki does not.
+  to produce, and each header rule. Tests also reject a substituted parent both
+  before a scheduled Tsuki activation and on chains that never activate Tsuki.
+- A guest-feature test calls `VerifyContext::verify` with an owned parent and
+  supplied compression information. The CLI rejects a missing `--parent-header`
+  even with a forced pre-Tsuki fork. Historical Feynman lineages use their first
+  recorded block as the trusted parent and replay all recorded successors, both
+  individually and as a chunk.
 - `chainspec::tests` pins the chain-id lookup and that mainnet's derived genesis
   header hashes to the published mainnet genesis hash, which is what lets a
   chain's first chunk be anchored to its genesis header. Chikyū is recorded as
@@ -140,7 +143,7 @@ apply, which `the_gas_rules_survive_a_future_dated_header` pins.
 
 `testdata/dogeos/base-fee-rule/` holds three short Tsuki chains built by a node that enforces the
 rule at import and writes the overhead slot into its execution witnesses. They replay through
-`run` with every rule enforced, which is what turns the rule from a set of vectors into a replay:
+`VerifyContext::verify` with every rule enforced, which is what turns the rule from a set of vectors into a replay:
 
 - `configured-overhead/` — the contract is a genesis predeploy with its slot unset, block 4's
   transaction sets the overhead, and blocks 5–7 are judged on it. This is the corpus behind the
@@ -173,8 +176,6 @@ and stays as the record of what its lineage cannot satisfy.
 
 ## Upkeep notes
 
-- Rebase this branch onto `dogeos/main`, then rebase `dogeos/main` onto
-  `master`.
 - If the chain configuration ever grows a second overhead source, change
   `BaseFeeDatabase`'s documentation with it: the account-before-slot order it
   establishes is a property of `SparseState`, not of the base-fee rule.

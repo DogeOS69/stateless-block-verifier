@@ -11,10 +11,8 @@ use reth_primitives_traits::RecoveredBlock;
 use sbv_primitives::{
     Address, B256, U256,
     alloy_primitives::map::B256Map,
-    chainspec::{
-        ChainSpec, EthChainSpec, ForkCondition, Hardforks, is_registered_chain, scroll::ChainConfig,
-    },
-    hardforks::{DogeosHardforks, Hardfork},
+    chainspec::{ChainSpec, EthChainSpec, is_registered_chain, scroll::ChainConfig},
+    hardforks::DogeosHardforks,
     types::{
         Header,
         consensus::BlockHeader,
@@ -93,10 +91,7 @@ pub struct VerifyResult {
     pub blocks: Vec<RecoveredBlock<Block>>,
     /// Pre-state root of the first block.
     ///
-    /// This is **verified** only when [`run`] was given a trusted parent header: it is then that
-    /// header's state root. Without one it is the witness's own claim, bound to nothing but the
-    /// execution that follows it. A trusted parent is mandatory for every chain that schedules
-    /// Tsuki, so a caller that folds this into public inputs has to supply one.
+    /// Verified against the trusted parent header supplied to [`VerifyContext::verify`].
     pub pre_state_root: B256,
     /// Post-state root after executing the witnesses.
     pub post_state_root: B256,
@@ -114,216 +109,217 @@ pub struct VerifyResult {
     pub next_message_index: u64,
 }
 
-/// Verify the block witness and return the gas used.
+/// Inputs for verifying a chunk against its trusted parent header.
+#[derive(Debug)]
+pub struct VerifyContext<'a> {
+    /// Consecutive block witnesses to verify.
+    pub witnesses: &'a [BlockWitness],
+    /// Trusted header immediately preceding the first witness, owned by this context.
+    ///
+    /// The caller must authenticate its hash, typically as the previous proof endpoint.
+    /// It anchors the chunk's block number, parent hash and pre-state root on every fork.
+    pub parent_header: Header,
+    /// Protocol rules for the chain being verified.
+    pub chain_spec: Arc<ChainSpec>,
+    /// Compression information for each transaction, grouped by block.
+    pub compression_infos: Vec<Vec<(U256, usize)>>,
+}
+
+/// Verify witnesses on the host, computing their compression information first.
 pub fn run_host(
     witnesses: &[BlockWitness],
-    parent: Option<&Header>,
+    parent_header: Header,
     chain_spec: Arc<ChainSpec>,
 ) -> Result<VerifyResult, StatelessValidationError> {
     let compression_infos = witnesses
         .iter()
         .map(|block| block.compression_infos())
         .collect::<Vec<_>>();
-    run(witnesses, parent, chain_spec, compression_infos)
+    VerifyContext {
+        witnesses,
+        parent_header,
+        chain_spec,
+        compression_infos,
+    }
+    .verify()
 }
 
-/// Verify the block witness and return the gas used.
-///
-/// `parent` is the trusted header of the block before the first witness: the caller vouches for
-/// it, typically because its hash is the previous proof endpoint. It anchors the chunk's first
-/// block (parent link, block number and pre-state root), roots the chain of header rules, and
-/// supplies the parent inputs of that block's base-fee rule.
-///
-/// On the host, the DogeOS header rules are applied exactly as the guest applies them: upstream's
-/// wall-clock future-block check is deliberately skipped, so the same inputs always give the same
-/// answer and the host cannot reject a chunk the guest would accept.
-///
-/// It is **required** whenever the chain spec schedules Tsuki at all, however far in the future.
-/// The requirement deliberately does not look at the witnesses' own timestamps: those are prover
-/// data, and a chunk could otherwise backdate its first block below the activation and opt out of
-/// its own anchor. For the same reason it covers a chunk that spans the transition. A chain that
-/// never activates Tsuki keeps the historical behaviour and may pass `None`.
-pub fn run(
-    witnesses: &[BlockWitness],
-    parent: Option<&Header>,
-    chain_spec: Arc<ChainSpec>,
-    compression_infos: Vec<Vec<(U256, usize)>>,
-) -> Result<VerifyResult, StatelessValidationError> {
-    if witnesses.is_empty() {
-        return Err(StatelessValidationError::EmptyWitnesses);
-    }
-    if !witnesses.has_same_chain_id() {
-        return Err(StatelessValidationError::InvalidAncestorChain);
-    }
-    if !witnesses.has_seq_block_number() {
-        return Err(StatelessValidationError::InvalidAncestorChain);
-    }
-    if !witnesses.has_seq_state_root() {
-        return Err(StatelessValidationError::InvalidAncestorChain);
-    }
-    if compression_infos.len() != witnesses.len()
-        || !witnesses
-            .iter()
-            .zip(&compression_infos)
-            .all(|(witness, infos)| infos.len() == witness.transactions.len())
-    {
-        return Err(StatelessValidationError::InvalidCompressionInfos);
-    }
+impl VerifyContext<'_> {
+    /// Consume the context and verify the witnesses against the trusted parent.
+    ///
+    /// Header and body rules apply to every fork; the base-fee rule applies from Tsuki.
+    /// The host skips the wall-clock future-block check to match deterministic guest execution.
+    pub fn verify(self) -> Result<VerifyResult, StatelessValidationError> {
+        let Self {
+            witnesses,
+            parent_header,
+            chain_spec,
+            compression_infos,
+        } = self;
+        if witnesses.is_empty() {
+            return Err(StatelessValidationError::EmptyWitnesses);
+        }
+        if !witnesses.has_same_chain_id() {
+            return Err(StatelessValidationError::InvalidAncestorChain);
+        }
+        if !witnesses.has_seq_block_number() {
+            return Err(StatelessValidationError::InvalidAncestorChain);
+        }
+        if !witnesses.has_seq_state_root() {
+            return Err(StatelessValidationError::InvalidAncestorChain);
+        }
+        if compression_infos.len() != witnesses.len()
+            || !witnesses
+                .iter()
+                .zip(&compression_infos)
+                .all(|(witness, infos)| infos.len() == witness.transactions.len())
+        {
+            return Err(StatelessValidationError::InvalidCompressionInfos);
+        }
 
-    let first = &witnesses[0].header;
+        let first = &witnesses[0].header;
 
-    if parent.is_none() && chain_spec.fork(Hardfork::Tsuki) != ForkCondition::Never {
-        return Err(StatelessValidationError::MissingParentHeader {
-            block_number: first.number,
-        });
-    }
-
-    // The height is checked before the hash so that a chunk starting at the wrong block reports
-    // its height rather than the hash mismatch that follows from it. The hash is what actually
-    // binds the chunk to the trusted parent, and with it the parent's state root.
-    if let Some(parent) = parent {
-        if first.number != parent.number + 1 {
+        // The height is checked before the hash so that a chunk starting at the wrong block reports
+        // its height rather than the hash mismatch that follows from it. The hash is what actually
+        // binds the chunk to the trusted parent, and with it the parent's state root.
+        if first.number != parent_header.number + 1 {
             return Err(StatelessValidationError::ParentNumberMismatch {
                 got: first.number,
-                expected: parent.number + 1,
+                expected: parent_header.number + 1,
             });
         }
-        let parent_hash = parent.hash_slow();
+        let parent_hash = parent_header.hash_slow();
         if first.parent_hash != parent_hash {
             return Err(StatelessValidationError::ParentHashMismatch {
                 got: first.parent_hash,
                 expected: parent_hash,
             });
         }
-        if witnesses[0].prev_state_root != parent.state_root {
+        if witnesses[0].prev_state_root != parent_header.state_root {
             return Err(StatelessValidationError::ParentStateRootMismatch {
                 got: witnesses[0].prev_state_root,
-                expected: parent.state_root,
+                expected: parent_header.state_root,
             });
         }
-    }
 
-    // The DogeOS header rules, rooted in the trusted parent when there is one. They run before
-    // anything is executed, because the base-fee rule reads two of the fields they cover.
-    validate_headers(parent, witnesses)?;
+        // The DogeOS header rules, rooted in the trusted parent. They run before
+        // anything is executed, because the base-fee rule reads two of the fields they cover.
+        validate_headers(&parent_header, witnesses)?;
 
-    let pre_state_root = witnesses[0].prev_state_root;
-    let post_state_root = witnesses.last().unwrap().header.state_root;
+        let pre_state_root = witnesses[0].prev_state_root;
+        let post_state_root = witnesses.last().unwrap().header.state_root;
 
-    let execution_witness = ExecutionWitness {
-        state: witnesses
+        let execution_witness = ExecutionWitness {
+            state: witnesses
+                .iter()
+                .flat_map(|w| w.states.iter().cloned())
+                .collect(),
+            codes: witnesses
+                .iter()
+                .flat_map(|w| w.codes.iter().cloned())
+                .collect(),
+            ..Default::default()
+        };
+        let (mut trie, bytecode) =
+            SparseState::new(&execution_witness, pre_state_root).map_err(|source| {
+                StatelessValidationError::SparseStateCreationFailed {
+                    pre_state_root,
+                    source,
+                }
+            })?;
+
+        let blocks = witnesses
             .iter()
-            .flat_map(|w| w.states.iter().cloned())
-            .collect(),
-        codes: witnesses
+            .map(|w| {
+                dev_trace!("{w:#?}");
+                w.build_reth_block()
+            })
+            .collect::<Result<Vec<RecoveredBlock<Block>>, _>>()
+            .map_err(|_| StatelessValidationError::SignerRecovery)?;
+
+        if !blocks
             .iter()
-            .flat_map(|w| w.codes.iter().cloned())
-            .collect(),
-        ..Default::default()
-    };
-    let (mut trie, bytecode) =
-        SparseState::new(&execution_witness, pre_state_root).map_err(|source| {
-            StatelessValidationError::SparseStateCreationFailed {
-                pre_state_root,
-                source,
+            .tuple_windows()
+            .all(|(a, b)| a.hash() == b.header().parent_hash)
+        {
+            return Err(StatelessValidationError::InvalidAncestorChain);
+        }
+
+        let mut gas_used = 0;
+
+        // The first block's base fee comes from the trusted parent; every later block's comes from
+        // its predecessor, whose link to it was checked above.
+        let mut block_parent = &parent_header;
+
+        for (block, compression_infos) in blocks.iter().zip_eq(compression_infos) {
+            // Transactions root, ommers, withdrawals and L1 message ordering: body commitments that
+            // replaying transactions and checking state roots does not cover.
+            validate_body_pre_execution(block)?;
+
+            // Timestamps are monotonic from the trusted parent, so a chunk cannot backdate a block
+            // below the activation to skip its base-fee rule: `validate_headers` rejected that above.
+            // A chunk that legitimately spans the transition still has its Tsuki blocks checked.
+            if chain_spec.is_tsuki_active_at_timestamp(block.timestamp()) {
+                check_base_fee(&chain_spec, &trie, &bytecode, block_parent, block)?;
             }
-        })?;
 
-    let blocks = witnesses
-        .iter()
-        .map(|w| {
-            dev_trace!("{w:#?}");
-            w.build_reth_block()
-        })
-        .collect::<Result<Vec<RecoveredBlock<Block>>, _>>()
-        .map_err(|_| StatelessValidationError::SignerRecovery)?;
+            let db = WitnessDatabase::new(&trie, &bytecode);
 
-    if !blocks
-        .iter()
-        .tuple_windows()
-        .all(|(a, b)| a.hash() == b.header().parent_hash)
-    {
-        return Err(StatelessValidationError::InvalidAncestorChain);
-    }
+            let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(compression_infos));
 
-    let mut gas_used = 0;
-
-    // The first block's base fee comes from the trusted parent; every later block's comes from
-    // its predecessor, whose link to it was checked above.
-    let mut block_parent = parent;
-
-    for (block, compression_infos) in blocks.iter().zip_eq(compression_infos) {
-        // Transactions root, ommers, withdrawals and L1 message ordering: body commitments that
-        // replaying transactions and checking state roots does not cover.
-        validate_body_pre_execution(block)?;
-
-        // Timestamps are monotonic from the trusted parent, so a chunk cannot backdate a block
-        // below the activation to skip its base-fee rule: `validate_headers` rejected that above.
-        // A chunk that legitimately spans the transition still has its Tsuki blocks checked.
-        if chain_spec.is_tsuki_active_at_timestamp(block.timestamp()) {
-            let block_parent =
-                block_parent.ok_or(StatelessValidationError::MissingParentHeader {
+            let output = executor.execute().map_err(|source| {
+                StatelessValidationError::StatelessExecutionFailed {
                     block_number: block.number,
-                })?;
-            check_base_fee(&chain_spec, &trie, &bytecode, block_parent, block)?;
-        }
-
-        let db = WitnessDatabase::new(&trie, &bytecode);
-
-        let executor = EvmExecutor::new(chain_spec.clone(), db, block, Some(compression_infos));
-
-        let output = executor.execute().map_err(|source| {
-            StatelessValidationError::StatelessExecutionFailed {
-                block_number: block.number,
-                source,
+                    source,
+                }
+            })?;
+            if block.gas_used != output.gas_used {
+                return Err(StatelessValidationError::GasUsedMismatch {
+                    block_number: block.number,
+                    got: block.gas_used,
+                    expected: output.gas_used,
+                });
             }
-        })?;
-        if block.gas_used != output.gas_used {
-            return Err(StatelessValidationError::GasUsedMismatch {
-                block_number: block.number,
-                got: block.gas_used,
-                expected: output.gas_used,
-            });
+            gas_used += output.gas_used;
+
+            validate_body_post_execution(block, &output.result)?;
+            block_parent = block.header();
+
+            // Compute and check the post state root
+            let hashed_state =
+                HashedPostState::from_bundle_state::<KeccakKeyHasher>(&output.state.state);
+            let state_root = trie.calculate_state_root(hashed_state);
+
+            if block.state_root != state_root {
+                dev_error!(
+                    "Block #{} root mismatch: root in header = {:x}, root after execution = {:x}",
+                    block.number,
+                    block.state_root,
+                    state_root
+                );
+                return Err(StatelessValidationError::PostStateRootMismatch {
+                    got: state_root,
+                    expected: block.state_root,
+                });
+            }
         }
-        gas_used += output.gas_used;
 
-        validate_body_post_execution(block, &output.result)?;
-        block_parent = Some(block.header());
+        let (withdraw_root, next_message_index) = l2_message_queue_info(
+            &chain_spec,
+            blocks.last().as_ref().expect("witnesses can not be empty"),
+            &trie,
+        )
+        .map_err(|source| map_l2_message_queue_info_error(blocks.last().unwrap().number, source))?;
 
-        // Compute and check the post state root
-        let hashed_state =
-            HashedPostState::from_bundle_state::<KeccakKeyHasher>(&output.state.state);
-        let state_root = trie.calculate_state_root(hashed_state);
-
-        if block.state_root != state_root {
-            dev_error!(
-                "Block #{} root mismatch: root in header = {:x}, root after execution = {:x}",
-                block.number,
-                block.state_root,
-                state_root
-            );
-            return Err(StatelessValidationError::PostStateRootMismatch {
-                got: state_root,
-                expected: block.state_root,
-            });
-        }
+        Ok(VerifyResult {
+            blocks,
+            pre_state_root,
+            post_state_root,
+            gas_used,
+            withdraw_root,
+            next_message_index,
+        })
     }
-
-    let (withdraw_root, next_message_index) = l2_message_queue_info(
-        &chain_spec,
-        blocks.last().as_ref().expect("witnesses can not be empty"),
-        &trie,
-    )
-    .map_err(|source| map_l2_message_queue_info_error(blocks.last().unwrap().number, source))?;
-
-    Ok(VerifyResult {
-        blocks,
-        pre_state_root,
-        post_state_root,
-        gas_used,
-        withdraw_root,
-        next_message_index,
-    })
 }
 
 fn map_l2_message_queue_info_error(
@@ -458,10 +454,10 @@ fn check_base_fee(
 /// parameters apply, so both have to be checked on every block and not only on the trusted parent.
 /// Callers that fold the result into public inputs rely on this and must not repeat it.
 fn validate_headers(
-    parent: Option<&Header>,
+    parent: &Header,
     witnesses: &[BlockWitness],
 ) -> Result<(), StatelessValidationError> {
-    let mut previous = parent.cloned().map(SealedHeader::new_unhashed);
+    let mut previous = SealedHeader::new_unhashed(parent.clone());
     for witness in witnesses {
         let block_number = witness.header.number;
         let header = SealedHeader::new_unhashed(witness.header.clone());
@@ -494,17 +490,15 @@ fn validate_headers(
                 });
             }
         }
-        if let Some(previous) = &previous {
-            DogeosConsensus
-                .validate_header_against_parent(&header, previous)
-                .map_err(
-                    |source| StatelessValidationError::InvalidHeaderAgainstParent {
-                        block_number,
-                        source,
-                    },
-                )?;
-        }
-        previous = Some(header);
+        DogeosConsensus
+            .validate_header_against_parent(&header, &previous)
+            .map_err(
+                |source| StatelessValidationError::InvalidHeaderAgainstParent {
+                    block_number,
+                    source,
+                },
+            )?;
+        previous = header;
     }
     Ok(())
 }
@@ -1111,17 +1105,23 @@ mod base_fee_rule_tests {
     ) {
         // Far enough ahead that no plausible clock makes it the past.
         let future = u64::MAX / 2;
+        let parent = canonical_header(future - 1);
         let mut header = canonical_header(future);
+        header.number = parent.number + 1;
+        header.parent_hash = parent.hash_slow();
         mutate(&mut header);
         let witnesses = [witness_with_header(header)];
 
-        let result = validate_headers(None, &witnesses);
+        let result = validate_headers(&parent, &witnesses);
 
         assert_eq!(
             matches!(result, Err(StatelessValidationError::InvalidHeader { .. })),
             rejected,
             "{result:?}"
         );
+        if !rejected {
+            result.expect("a canonical future-dated header still validates against its parent");
+        }
     }
 
     /// The development chain is registered and names the zero address, and its node reads that
@@ -1188,7 +1188,7 @@ mod base_fee_rule_tests {
     /// made it: block n is checked against the trie as it stands, the write its transaction makes
     /// is committed, and block n+1 is checked against the result.
     ///
-    /// This covers the state read, not the order in which `run` performs it. A run-level test
+    /// This covers the state read, not the order in which `VerifyContext::verify` performs it. A run-level test
     /// needs a witness whose transaction writes slot 101, which the corpus regeneration provides;
     /// until then nothing here would fail if the production check moved after execution.
     #[test]
@@ -1239,7 +1239,7 @@ mod base_fee_rule_tests {
     /// the default overhead and the Feynman fee parameters their producing node used.
     ///
     /// This pins the rule against real chain data, and records why those witnesses cannot be
-    /// replayed through a Tsuki `run`: their node predates the D48/E10 parameters, and they carry
+    /// replayed through Tsuki verification: their node predates the D48/E10 parameters, and they carry
     /// no proof for the L2SystemConfig account.
     #[test]
     fn the_recorded_lineages_follow_the_rule() {
@@ -1272,7 +1272,7 @@ mod base_fee_rule_tests {
     }
 }
 
-/// The regenerated Tsuki corpora, replayed through `run` with every rule enforced.
+/// The regenerated Tsuki corpora, replayed through `VerifyContext::verify` with every rule enforced.
 ///
 /// Each one is a real chain built by a node that applies the base-fee rule at import and writes
 /// the L2SystemConfig slot into its execution witnesses, on a chain id this build knows, so the
@@ -1407,7 +1407,7 @@ mod regenerated_corpus_tests {
     fn the_regenerated_corpora_replay_with_every_rule_enforced() {
         let (genesis, blocks) = configured_overhead();
         let spec = tsuki_spec(&blocks[0]);
-        let result = run_host(&blocks, Some(&genesis), spec).expect("configured-overhead");
+        let result = run_host(&blocks, genesis.clone(), spec).expect("configured-overhead");
         assert_eq!(result.pre_state_root, genesis.state_root);
         assert_eq!(
             result.blocks.last().unwrap().hash(),
@@ -1416,12 +1416,12 @@ mod regenerated_corpus_tests {
 
         let (genesis, blocks) = absent_then_created();
         let spec = tsuki_spec(&blocks[0]);
-        run_host(&blocks, Some(&genesis), spec).expect("absent-then-created");
+        run_host(&blocks, genesis.clone(), spec).expect("absent-then-created");
 
         let (genesis, blocks) = development_chain();
         assert_eq!(blocks[0].chain_id, DOGEOS_DEV.chain.id());
         let spec = tsuki_spec(&blocks[0]);
-        run_host(&blocks, Some(&genesis), spec).expect("development-chain");
+        run_host(&blocks, genesis.clone(), spec).expect("development-chain");
     }
 
     /// The authenticated L2 message queue index the proof publishes is read from these chains too.
@@ -1432,7 +1432,7 @@ mod regenerated_corpus_tests {
         for (genesis, blocks) in [configured_overhead(), absent_then_created()] {
             let spec = tsuki_spec(&blocks[0]);
             assert!(spec.is_tsuki_active_at_timestamp(blocks[0].header.timestamp));
-            let result = run_host(&blocks, Some(&genesis), spec).expect("the chain replays");
+            let result = run_host(&blocks, genesis.clone(), spec).expect("the chain replays");
             assert_eq!(result.next_message_index, 0, "no block withdraws to L1");
         }
     }
@@ -1446,12 +1446,12 @@ mod regenerated_corpus_tests {
         assert_eq!(genesis.number, 0);
         assert_eq!(blocks[0].header.parent_hash, genesis.hash_slow());
 
-        run_host(&blocks[..1], Some(&genesis), spec.clone()).expect("the first chunk");
+        run_host(&blocks[..1], genesis.clone(), spec.clone()).expect("the first chunk");
 
         let mut substituted = genesis.clone();
         substituted.state_root = B256::repeat_byte(9);
         assert!(matches!(
-            run_host(&blocks[..1], Some(&substituted), spec),
+            run_host(&blocks[..1], substituted.clone(), spec),
             Err(StatelessValidationError::ParentHashMismatch { .. })
         ));
     }
@@ -1478,13 +1478,13 @@ mod regenerated_corpus_tests {
         assert_ne!(on_new, on_old);
 
         // As one chunk.
-        run_host(&blocks[3..5], Some(&blocks[2].header), spec.clone())
+        run_host(&blocks[3..5], blocks[2].header.clone(), spec.clone())
             .expect("the change and its successor in one chunk");
 
         // As two chunks meeting at the boundary: the first ends on block 4, the second opens it.
-        let first = run_host(&blocks[3..4], Some(&blocks[2].header), spec.clone())
+        let first = run_host(&blocks[3..4], blocks[2].header.clone(), spec.clone())
             .expect("the chunk that changes the overhead");
-        let second = run_host(&blocks[4..5], Some(&change.header), spec.clone())
+        let second = run_host(&blocks[4..5], change.header.clone(), spec.clone())
             .expect("the chunk that starts on the new overhead");
         assert_eq!(
             first.blocks.last().unwrap().hash(),
@@ -1501,7 +1501,7 @@ mod regenerated_corpus_tests {
         ] {
             assert!(
                 matches!(
-                    run_host(chunk, Some(parent), spec.clone()),
+                    run_host(chunk, parent.clone(), spec.clone()),
                     Err(StatelessValidationError::BaseFeeMismatch {
                         block_number: 5,
                         got,
@@ -1532,7 +1532,7 @@ mod regenerated_corpus_tests {
             .expect("the transfer created the account");
         assert_eq!(account.storage_root, sbv_trie::EMPTY_ROOT_HASH);
 
-        run_host(&blocks, Some(&genesis), spec).expect("the whole chain replays");
+        run_host(&blocks, genesis.clone(), spec).expect("the whole chain replays");
     }
 
     /// A chunk that drops the witness node proving the L2SystemConfig slot fails the proof rather
@@ -1560,10 +1560,10 @@ mod regenerated_corpus_tests {
         );
 
         assert_unresolved_node_abort(|| {
-            run_host(&withheld[4..5], Some(&blocks[3].header), spec.clone())
+            run_host(&withheld[4..5], blocks[3].header.clone(), spec.clone())
         });
         // The untouched witness verifies, so the abort is the withheld node and nothing else.
-        run_host(&blocks[4..5], Some(&blocks[3].header), spec).expect("the untouched witness");
+        run_host(&blocks[4..5], blocks[3].header.clone(), spec).expect("the untouched witness");
     }
 }
 
@@ -1580,8 +1580,7 @@ mod anchor_tests {
         types::{consensus::Header, reth::consensus::ConsensusError},
     };
 
-    /// Five consecutive mainnet blocks, from a fork whose chunks need no trusted parent, so the
-    /// anchoring and body rules can be exercised against real chain data.
+    /// Five consecutive mainnet blocks; the first supplies the trusted parent for the rest.
     fn consecutive_blocks() -> Vec<BlockWitness> {
         [
             include_str!("../../../testdata/scroll/feynman/534352-19604670.json"),
@@ -1623,7 +1622,7 @@ mod anchor_tests {
         let (parent, chunk) = blocks.split_first().unwrap();
         let spec = feynman_spec(parent);
 
-        let result = run_host(chunk, Some(&parent.header), spec).unwrap();
+        let result = run_host(chunk, parent.header.clone(), spec).unwrap();
 
         assert_eq!(result.pre_state_root, parent.header.state_root);
         assert_eq!(
@@ -1639,35 +1638,27 @@ mod anchor_tests {
         let blocks = consecutive_blocks();
         let spec = feynman_spec(&blocks[0]);
 
-        let first = run_host(&blocks[1..3], Some(&blocks[0].header), spec.clone()).unwrap();
+        let first = run_host(&blocks[1..3], blocks[0].header.clone(), spec.clone()).unwrap();
         let boundary = &blocks[2].header;
-        let second = run_host(&blocks[3..5], Some(boundary), spec).unwrap();
+        let second = run_host(&blocks[3..5], boundary.clone(), spec).unwrap();
 
         assert_eq!(first.blocks.last().unwrap().hash(), boundary.hash_slow());
         assert_eq!(second.blocks[0].header().parent_hash, boundary.hash_slow());
         assert_eq!(second.pre_state_root, boundary.state_root);
     }
 
-    /// A Tsuki chunk without a trusted parent header is rejected: the rule that binds it to the
-    /// previous endpoint, and its first block's base fee, both depend on it.
+    /// Tsuki witnesses must link to the supplied parent header before any state is opened.
     #[test]
-    fn a_tsuki_chunk_without_a_parent_header_is_rejected() {
+    fn a_tsuki_chunk_with_a_substituted_parent_is_rejected() {
         let blocks = tsuki_lineage();
         let spec = tsuki_spec(&blocks[0]);
+        let mut parent = blocks[0].header.clone();
+        parent.nonce = [1; 8].into();
 
         assert!(matches!(
-            run_host(&blocks, None, spec),
-            Err(StatelessValidationError::MissingParentHeader { block_number: 11 })
+            run_host(&blocks[1..], parent, spec),
+            Err(StatelessValidationError::ParentHashMismatch { .. })
         ));
-    }
-
-    /// Earlier forks keep their historical behaviour and verify without a parent.
-    #[test]
-    fn a_legacy_chunk_without_a_parent_header_is_accepted() {
-        let blocks = consecutive_blocks();
-        let spec = feynman_spec(&blocks[0]);
-
-        run_host(&blocks[1..3], None, spec).expect("a Feynman chunk needs no trusted parent");
     }
 
     /// A chunk that does not start at the block after the parent is rejected on its height.
@@ -1677,7 +1668,7 @@ mod anchor_tests {
         let spec = feynman_spec(&blocks[0]);
 
         assert!(matches!(
-            run_host(&blocks[2..4], Some(&blocks[0].header), spec),
+            run_host(&blocks[2..4], blocks[0].header.clone(), spec),
             Err(StatelessValidationError::ParentNumberMismatch {
                 got: 19_604_672,
                 expected: 19_604_671,
@@ -1692,7 +1683,7 @@ mod anchor_tests {
         let spec = feynman_spec(&blocks[0]);
 
         assert!(matches!(
-            run_host(&blocks[0..2], Some(&blocks[0].header), spec),
+            run_host(&blocks[0..2], blocks[0].header.clone(), spec),
             Err(StatelessValidationError::ParentNumberMismatch {
                 got: 19_604_670,
                 expected: 19_604_671,
@@ -1712,7 +1703,7 @@ mod anchor_tests {
         assert_ne!(parent.hash_slow(), real);
 
         assert!(matches!(
-            run_host(&blocks[1..3], Some(&parent), spec),
+            run_host(&blocks[1..3], parent.clone(), spec),
             Err(StatelessValidationError::ParentHashMismatch { expected, .. })
                 if expected == parent.hash_slow()
         ));
@@ -1728,7 +1719,7 @@ mod anchor_tests {
         blocks[1].prev_state_root = B256::repeat_byte(9);
 
         assert!(matches!(
-            run_host(&blocks[1..2], Some(&parent), spec),
+            run_host(&blocks[1..2], parent.clone(), spec),
             Err(StatelessValidationError::ParentStateRootMismatch {
                 got,
                 expected,
@@ -1752,7 +1743,7 @@ mod anchor_tests {
         blocks[1 + index].header.gas_limit *= 2;
 
         assert!(matches!(
-            run_host(&blocks[1..4], Some(&parent), spec),
+            run_host(&blocks[1..4], parent.clone(), spec),
             Err(StatelessValidationError::InvalidHeaderAgainstParent { block_number, .. })
                 if block_number == number
         ));
@@ -1773,18 +1764,15 @@ mod anchor_tests {
         blocks[1 + index].header.timestamp = 1;
 
         assert!(matches!(
-            run_host(&blocks[1..4], Some(&parent), spec),
+            run_host(&blocks[1..4], parent.clone(), spec),
             Err(StatelessValidationError::InvalidHeaderAgainstParent { block_number, .. })
                 if block_number == number
         ));
     }
 
-    /// Whether a chunk must be anchored cannot depend on the witnesses' own timestamps: a chunk
-    /// could otherwise backdate its first block below the Tsuki activation and skip the anchor,
-    /// leaving its pre-state root bound to nothing. A chain that schedules Tsuki at all requires
-    /// the parent, whatever the witnesses say.
+    /// Moving the chunk below a future Tsuki activation cannot bypass its parent-hash check.
     #[test]
-    fn a_backdated_first_block_still_requires_its_parent() {
+    fn a_pre_tsuki_first_block_still_checks_its_parent() {
         use sbv_primitives::{chainspec::scroll::DogeosChainSpec, hardforks::DogeosHardforks};
 
         let blocks = consecutive_blocks();
@@ -1802,15 +1790,17 @@ mod anchor_tests {
         assert!(!spec.is_tsuki_active_at_timestamp(blocks[1].header.timestamp));
         assert!(spec.is_tsuki_active_at_timestamp(activation));
 
+        let mut parent = blocks[0].header.clone();
+        parent.nonce = [1; 8].into();
         assert!(matches!(
-            run_host(&blocks[1..3], None, spec),
-            Err(StatelessValidationError::MissingParentHeader { .. })
+            run_host(&blocks[1..3], parent, spec),
+            Err(StatelessValidationError::ParentHashMismatch { .. })
         ));
     }
 
-    /// A chain that never activates Tsuki keeps the historical behaviour.
+    /// Parent anchoring also applies to chains that never activate Tsuki.
     #[test]
-    fn a_chain_without_a_tsuki_activation_needs_no_parent() {
+    fn a_chain_without_tsuki_still_checks_the_parent() {
         use sbv_primitives::{
             chainspec::{ForkCondition, Hardforks},
             hardforks::Hardfork,
@@ -1824,7 +1814,13 @@ mod anchor_tests {
             "this spec must be one that never activates Tsuki"
         );
 
-        run_host(&blocks[1..3], None, spec).expect("no Tsuki activation, no anchor required");
+        let mut parent = blocks[0].header.clone();
+        run_host(&blocks[1..3], parent.clone(), spec.clone()).expect("the anchored chunk verifies");
+        parent.state_root = B256::repeat_byte(9);
+        assert!(matches!(
+            run_host(&blocks[1..3], parent, spec),
+            Err(StatelessValidationError::ParentHashMismatch { .. })
+        ));
     }
 
     /// The recorded Tsuki lineage is anchored correctly but carries no proof for the
@@ -1838,7 +1834,7 @@ mod anchor_tests {
         let blocks = tsuki_lineage();
         let spec = tsuki_spec(&blocks[0]);
 
-        assert_unresolved_node_abort(|| run_host(&blocks[1..3], Some(&blocks[0].header), spec));
+        assert_unresolved_node_abort(|| run_host(&blocks[1..3], blocks[0].header.clone(), spec));
     }
 
     /// A header that claims gas the block did not spend is rejected, in either direction.
@@ -1858,7 +1854,7 @@ mod anchor_tests {
         blocks[1].header.gas_used = honest.wrapping_add_signed(delta);
 
         assert!(matches!(
-            run_host(&blocks[1..2], Some(&parent), spec),
+            run_host(&blocks[1..2], parent.clone(), spec),
             Err(StatelessValidationError::GasUsedMismatch {
                 got,
                 expected,
@@ -1898,7 +1894,7 @@ mod anchor_tests {
         let parent = blocks[0].header.clone();
         mutate(&mut blocks[1]);
 
-        match run_host(&blocks[1..2], Some(&parent), spec) {
+        match run_host(&blocks[1..2], parent.clone(), spec) {
             Err(StatelessValidationError::BodyValidationFailed {
                 block_number,
                 source,
@@ -1931,7 +1927,7 @@ mod anchor_tests {
         mutate(&mut blocks[1].header);
 
         assert!(matches!(
-            run_host(&blocks[1..2], Some(&parent), spec),
+            run_host(&blocks[1..2], parent.clone(), spec),
             Err(StatelessValidationError::InvalidHeader { block_number, .. })
                 if block_number == 19_604_671
         ));
@@ -1948,34 +1944,36 @@ mod host_tests {
         keccak256,
     };
 
+    /// Each lineage's first recorded block supplies the trusted parent for its successors.
     #[rstest::rstest]
-    fn test_feynman(
-        #[files("../../testdata/scroll/feynman/*.json")]
-        #[mode = str]
-        witness_json: &str,
-    ) {
-        let witness: BlockWitness = serde_json::from_str(witness_json).unwrap();
+    #[case::mainnet(534_352, 19)]
+    #[case::l1_messages(5_343_513_301, 3)]
+    fn test_feynman(#[case] chain_id: u64, #[case] verified_blocks: usize) {
+        let fixture_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/scroll/feynman");
+        let mut witnesses = std::fs::read_dir(fixture_dir)
+            .unwrap()
+            .map(|entry| {
+                serde_json::from_slice::<BlockWitness>(
+                    &std::fs::read(entry.unwrap().path()).unwrap(),
+                )
+                .unwrap()
+            })
+            .filter(|witness| witness.chain_id == chain_id)
+            .collect::<Vec<_>>();
+        witnesses.sort_by_key(|witness| witness.header.number);
+        let (parent, blocks) = witnesses.split_first().unwrap();
+        assert_eq!(blocks.len(), verified_blocks);
         let chain_spec =
-            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
-        let result = run_host(&[witness], None, chain_spec).unwrap();
-        assert_eq!(result.next_message_index, 0);
-    }
-
-    /// A pre-backfill Feynman witness must verify without reading the absent slot-1 proof.
-    ///
-    /// Keep this fixture in its original pre-backfill form. If the pre-Tsuki gate is removed,
-    /// verification fails with `MPT: Unresolved node access` instead of returning the sentinel `0`.
-    #[test]
-    fn test_next_message_index_pre_tsuki_missing_slot1_proof_is_sentinel() {
-        let witness: BlockWitness = serde_json::from_str(include_str!(
-            "../../../testdata/scroll/feynman/534352-19604670.json"
-        ))
-        .unwrap();
-        let chain_spec =
-            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
-
-        let result = run_host(&[witness], None, chain_spec).unwrap();
-
+            build_chain_spec_force_hardfork(Chain::from_id(chain_id), Hardfork::Feynman);
+        // Keep each witness independently replayable as well as checking the whole chunk:
+        // merging witnesses' trie nodes must not conceal a missing per-block proof.
+        for pair in witnesses.windows(2) {
+            let result = run_host(&pair[1..], pair[0].header.clone(), chain_spec.clone()).unwrap();
+            assert_eq!(result.next_message_index, 0);
+        }
+        let result = run_host(blocks, parent.header.clone(), chain_spec).unwrap();
+        assert_eq!(result.blocks.len(), verified_blocks);
         assert_eq!(result.next_message_index, 0);
     }
 
@@ -2016,7 +2014,7 @@ mod host_tests {
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
         // Block 11 is the chunk's trusted parent, so the chunk itself is blocks 12 and 13.
         let (parent, chunk) = witnesses.split_first().unwrap();
-        let result = run_host(chunk, Some(&parent.header), chain_spec).unwrap();
+        let result = run_host(chunk, parent.header.clone(), chain_spec).unwrap();
 
         assert_eq!(result.next_message_index, 0);
     }
@@ -2059,7 +2057,8 @@ mod host_tests {
             build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
         assert!(chain_spec.is_tsuki_active_at_timestamp(witness.header.timestamp));
 
-        let result = run_host(&[witness], None, chain_spec).unwrap();
+        // Replace this placeholder with the trusted predecessor when regenerating the lineage.
+        let result = run_host(&[witness], Header::default(), chain_spec).unwrap();
         assert_eq!(result.blocks[0].hash(), EXPECTED_BLOCK_HASH);
         assert_eq!(result.next_message_index, EXPECTED_NEXT_MESSAGE_INDEX);
     }
@@ -2069,7 +2068,7 @@ mod host_tests {
         use std::error::Error;
 
         let mut witness: BlockWitness = serde_json::from_str(include_str!(
-            "../../../testdata/dogeos/next-message-index/6281971-19.json"
+            "../../../testdata/scroll/feynman/534352-19604671.json"
         ))
         .unwrap();
         // Point the pre-state root at a witness node that is present but is not valid RLP. This
@@ -2079,13 +2078,17 @@ mod host_tests {
         let corrupt_root = keccak256(&malformed_root_node);
         witness.states.push(malformed_root_node);
         witness.prev_state_root = corrupt_root;
-        // The fork only decides which post-execution reads happen; sparse-state construction
-        // fails first either way. Feynman keeps the witness out of the Tsuki parent-header and
-        // base-fee rules, which are covered on their own below.
+        let mut parent: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ))
+        .unwrap();
+        // Authenticate the malformed root through the parent so this test reaches trie decoding.
+        parent.header.state_root = corrupt_root;
+        witness.header.parent_hash = parent.header.hash_slow();
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
 
-        let error = run_host(&[witness], None, chain_spec)
+        let error = run_host(&[witness], parent.header, chain_spec)
             .expect_err("an unrelated pre-state root must not be revealed by the witness");
 
         match &error {
@@ -2143,7 +2146,7 @@ mod host_tests {
     #[case::long(1)]
     fn compression_infos_must_match_tx_count(#[case] delta: isize) {
         let witness: BlockWitness = serde_json::from_str(include_str!(
-            "../../../testdata/dogeos/next-message-index/6281971-19.json"
+            "../../../testdata/scroll/feynman/534352-19604671.json"
         ))
         .unwrap();
         let txs = witness.transactions.len();
@@ -2151,18 +2154,22 @@ mod host_tests {
         let mut infos = honest_compression_infos(std::slice::from_ref(&witness));
         resize_infos(&mut infos[0], delta);
         let chain_spec =
-            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
 
-        let result = run(&[witness], None, chain_spec, infos);
+        let parent: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ))
+        .unwrap();
+        let result = VerifyContext {
+            witnesses: &[witness],
+            parent_header: parent.header,
+            chain_spec,
+            compression_infos: infos,
+        }
+        .verify();
 
         if delta == 0 {
-            // A Tsuki chunk now needs a trusted parent header, which this single-block witness has
-            // no in-corpus candidate for, so this case asserts only that matching counts get past
-            // the compression-info check.
-            assert!(!matches!(
-                result,
-                Err(StatelessValidationError::InvalidCompressionInfos)
-            ));
+            result.expect("matching compression counts and a valid parent must verify");
         } else {
             assert!(matches!(
                 result,
@@ -2186,7 +2193,13 @@ mod host_tests {
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
 
         assert!(matches!(
-            run(&witnesses, None, chain_spec, infos),
+            VerifyContext {
+                witnesses: &witnesses,
+                parent_header: Header::default(),
+                chain_spec,
+                compression_infos: infos
+            }
+            .verify(),
             Err(StatelessValidationError::InvalidCompressionInfos)
         ));
     }
@@ -2203,7 +2216,13 @@ mod host_tests {
             build_chain_spec_force_hardfork(Chain::from_id(6_281_971), Hardfork::Tsuki);
 
         assert!(matches!(
-            run(&witnesses, None, chain_spec, infos),
+            VerifyContext {
+                witnesses: &witnesses,
+                parent_header: Header::default(),
+                chain_spec,
+                compression_infos: infos
+            }
+            .verify(),
             Err(StatelessValidationError::InvalidCompressionInfos)
         ));
     }
@@ -2223,7 +2242,17 @@ mod host_tests {
         let chain_spec =
             build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Feynman);
 
-        let result = run(&[witness], None, chain_spec, infos);
+        let parent: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604674.json"
+        ))
+        .unwrap();
+        let result = VerifyContext {
+            witnesses: &[witness],
+            parent_header: parent.header,
+            chain_spec,
+            compression_infos: infos,
+        }
+        .verify();
 
         if delta == 0 {
             result.expect("an empty block with no compression infos must verify");
@@ -2251,6 +2280,72 @@ mod host_tests {
 mod tests {
     use super::*;
 
+    /// The guest entry point consumes an owned parent without host compression support.
+    #[test]
+    fn verify_context_anchors_an_empty_block_without_compress_info_feature() {
+        use sbv_primitives::{
+            chainspec::{Chain, build_chain_spec_force_hardfork},
+            hardforks::Hardfork,
+        };
+
+        let parent: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/dogeos/base-fee-rule/configured-overhead/6.json"
+        ))
+        .unwrap();
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/dogeos/base-fee-rule/configured-overhead/7.json"
+        ))
+        .unwrap();
+        assert!(witness.transactions.is_empty());
+        let pre_state_root = parent.header.state_root;
+        let block_hash = witness.header.hash_slow();
+        let post_state_root = witness.header.state_root;
+        let chain_spec =
+            build_chain_spec_force_hardfork(Chain::from_id(witness.chain_id), Hardfork::Tsuki);
+
+        let result = VerifyContext {
+            witnesses: &[witness],
+            parent_header: parent.header,
+            chain_spec,
+            compression_infos: vec![vec![]],
+        }
+        .verify()
+        .unwrap();
+
+        assert_eq!(result.blocks[0].hash(), block_hash);
+        assert_eq!(result.pre_state_root, pre_state_root);
+        assert_eq!(result.post_state_root, post_state_root);
+    }
+
+    /// The original pre-backfill witness has no slot-1 proof. Exercise the queue reader
+    /// directly because this lineage does not include the predecessor needed for verification.
+    #[test]
+    fn test_next_message_index_pre_tsuki_missing_slot1_proof_is_sentinel() {
+        use sbv_primitives::{
+            chainspec::{Chain, build_chain_spec_force_hardfork},
+            hardforks::Hardfork,
+        };
+
+        let witness: BlockWitness = serde_json::from_str(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ))
+        .unwrap();
+        let chain = Chain::from_id(witness.chain_id);
+        let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Feynman);
+        let state = base_fee_rule_tests::cold_state(&witness);
+        let block = witness.build_reth_block().unwrap();
+
+        assert_eq!(
+            l2_message_queue_info(&chain_spec, &block, &state)
+                .unwrap()
+                .1,
+            0
+        );
+
+        let tsuki_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
+        assert_unresolved_node_abort(|| l2_message_queue_info(&tsuki_spec, &block, &state));
+    }
+
     /// Runs under the guest feature set (without `scroll-compress-info`): mismatched
     /// compression infos are rejected before execution, so placeholder values suffice.
     #[test]
@@ -2274,12 +2369,24 @@ mod tests {
         for infos in [placeholder(txs - 1), placeholder(txs + 1)] {
             let all = vec![placeholder(witnesses[0].transactions.len()), infos];
             assert!(matches!(
-                run(&witnesses, None, chain_spec.clone(), all),
+                VerifyContext {
+                    witnesses: &witnesses,
+                    parent_header: Header::default(),
+                    chain_spec: chain_spec.clone(),
+                    compression_infos: all
+                }
+                .verify(),
                 Err(StatelessValidationError::InvalidCompressionInfos)
             ));
         }
         assert!(matches!(
-            run(&witnesses, None, chain_spec, vec![placeholder(0)]),
+            VerifyContext {
+                witnesses: &witnesses,
+                parent_header: Header::default(),
+                chain_spec,
+                compression_infos: vec![placeholder(0)]
+            }
+            .verify(),
             Err(StatelessValidationError::InvalidCompressionInfos)
         ));
     }

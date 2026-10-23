@@ -13,11 +13,11 @@ use std::{
 
 pub fn verify_catch_panics(
     witness: BlockWitness,
-    parent: Option<&Header>,
+    parent_header: Header,
     chain_spec: Arc<ChainSpec>,
 ) -> eyre::Result<VerifyResult> {
     catch_unwind(AssertUnwindSafe(|| {
-        verifier::run_host(&[witness], parent, chain_spec)
+        verifier::run_host(&[witness], parent_header, chain_spec)
     }))
     .map_err(|e| {
         e.downcast_ref::<&str>()

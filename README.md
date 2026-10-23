@@ -13,6 +13,26 @@ must enable `scroll-compress-info`; this feature includes compression support th
 of guest builds. The CLI enables it automatically. Public-input-only consumers can continue to
 use `sbv-primitives/scroll-reth-consensus-types` without enabling Scroll execution or compression.
 
+Verification uses `sbv_core::verifier::VerifyContext`, with a required owned parent header on
+every fork. The caller must authenticate that header as the previous proof endpoint; the verifier
+checks the first witness's height, parent hash, and pre-state root against it. Replace calls to
+`verifier::run` with:
+
+```rust
+use sbv_core::verifier::VerifyContext;
+
+let result = VerifyContext {
+    witnesses,
+    parent_header: parent_header.clone(),
+    chain_spec,
+    compression_infos,
+}
+.verify()?;
+```
+
+`verify(self)` consumes the context. `run_host` computes compression information for host callers
+and accepts the same required owned `Header`.
+
 Witness consumers should use `sbv-core::BlockWitness`, which holds native Alloy `Header`,
 Scroll `TxEnvelope`, and Alloy `Withdrawals` values. The `rkyv` features,
 `sbv-primitives::legacy_types`, `BlockWitness::into_legacy`, and conversion from the legacy

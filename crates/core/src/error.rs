@@ -45,13 +45,6 @@ pub enum StatelessValidationError {
         source: ProviderError,
     },
 
-    /// A chunk that must be anchored to a trusted parent header was verified without one.
-    #[error("missing trusted parent header for block {block_number}")]
-    MissingParentHeader {
-        /// The number of the first block in the chunk.
-        block_number: u64,
-    },
-
     /// A block header does not satisfy the DogeOS header rules on its own.
     #[error("invalid header for block {block_number}: {source}")]
     InvalidHeader {

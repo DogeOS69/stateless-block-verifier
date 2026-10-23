@@ -96,10 +96,12 @@ cast storage 0x5300000000000000000000000000000000000000 0x1 \
   --block 20240125
 ```
 
-If this fixture needs to be refreshed, verify it still passes:
+After refreshing this fixture for the current rules, obtain and authenticate its predecessor
+header separately (not included here), then replay it with:
 
 ```bash
-cargo run -p sbv-cli --features scroll -- run testdata/dogeos/next-message-index/20240125.json
+cargo run -p sbv-cli -- run --parent-header parent.json \
+  testdata/dogeos/next-message-index/20240125.json
 ```
 
 On this branch, `sbv-cli dump --features scroll` appends `L2MessageQueue` proof nodes from
@@ -110,4 +112,6 @@ The older fixtures under `testdata/scroll/` were backfilled with the same accoun
 proof nodes for `messageRoot` / `nextMessageIndex` so the full Scroll fixture sweep keeps
 covering DogeOS's post-execution queue reads, except
 `testdata/scroll/feynman/534352-19604670.json`. That fixture intentionally remains in its
-original pre-backfill form to guard the pre-Tsuki missing-slot-1-proof path.
+original pre-backfill form to guard the pre-Tsuki missing-slot-1-proof path directly through
+the queue reader. Its predecessor header is unavailable, so chunk verification uses it as the
+trusted parent of block 19604671.
