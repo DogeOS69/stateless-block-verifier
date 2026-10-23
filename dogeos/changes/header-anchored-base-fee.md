@@ -120,24 +120,32 @@ apply, which `the_gas_rules_survive_a_future_dated_header` pins.
   abort. `the_recorded_lineages_follow_the_rule` replays the base fees the
   recorded Tsuki witnesses actually carry.
 - `verifier::anchor_tests` runs the anchoring, header, gas and body
-  rules through `run_host` over five consecutive real mainnet blocks: a chunk
+  rules through `run_host` over five consecutive recorded Tsuki blocks: a chunk
   anchored to its parent, two chunks meeting at a boundary block, a skipped
   block, a repeated block, a substituted parent header, a pre-state root that is
   not the parent's, a gas-limit jump and a backwards timestamp (first block
   against the trusted parent, mid-chunk, and last block), a `gas_used`
   misreported in either direction, each body commitment with the failure it has
-  to produce, and each header rule. Tests also reject a substituted parent both
-  before a scheduled Tsuki activation and on chains that never activate Tsuki.
+  to produce, and each header rule. A substituted parent is also rejected before
+  a scheduled Tsuki activation.
 - A guest-feature test calls `VerifyContext::verify` with an owned parent and
   supplied compression information. The CLI rejects a missing `--parent-header`
-  even with a forced pre-Tsuki fork. Historical Feynman lineages use their first
-  recorded block as the trusted parent and replay all recorded successors, both
-  individually and as a chunk.
-- `chainspec::tests` pins the chain-id lookup and that mainnet's derived genesis
-  header hashes to the published mainnet genesis hash, which is what lets a
-  chain's first chunk be anchored to its genesis header. Chikyū is recorded as
-  the exception: its published genesis hash is stored in the specification, not
-  derived from its genesis document.
+  even with a forced pre-Tsuki fork. The two historical Feynman replay cases and
+  the never-Tsuki replay test are ignored: their witnesses lack slot-101 proofs,
+  which the pinned executor now reads on every fork. General anchor, body, gas
+  and compression tests use the complete Tsuki corpus.
+- `chainspec::tests` pins the chain-id lookup and verifies that both mainnet's
+  and Chikyū's derived genesis headers hash to their published genesis hashes,
+  so each chain's first chunk can be anchored to its genesis header.
+
+## Witness producer compatibility
+
+The dependency pins in the root README include dogeos-reth #39 and reth #9. The node validates
+base fees through `ConfigureEvm::validate_block_pre_execution`; the block executor also reads
+slot 101 before transitions or transactions so `debug_executionWitness` records its proof.
+SBV keeps its explicit pre-state base-fee check for deterministic guest execution. Older witness
+files are not completed by a dependency update and must be regenerated or supplied with valid
+proof nodes; an unresolved account or slot still fails verification.
 
 ## The regenerated corpora
 

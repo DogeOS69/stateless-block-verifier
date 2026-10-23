@@ -41,6 +41,22 @@ with an earlier SBV revision before upgrading. Current witness JSON and binary S
 continue to use the upstream `serde_bincode_compat` adapters: native headers omit optional fields
 and native transaction envelopes use tagged Serde representations that are unsuitable for bincode.
 
+## DogeOS dependency pins
+
+The workspace uses one Git revision per DogeOS repository, matching dogeos-reth's dependency pins:
+
+| Repository | Revision |
+| --- | --- |
+| `DogeOS69/dogeos-reth` | `54d2b2c161ed7fa50d377e26a8adc1f2dcff0350` |
+| `DogeOS69/reth` | `42b56304227691327c44415262d23ff680a44ffb` |
+| `DogeOS69/dogeos-revm` | `tsuki-v0.9` (`d4ac4dac66e5648099a0277eb63f606fc04caff7`) |
+
+The dogeos-revm tag is pinned by commit to share the same Cargo source as dogeos-reth.
+The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
+blocks. Witnesses must include the account/storage proof or an authenticated absence. Legacy
+Feynman replay tests are ignored because their witnesses lack this proof; general verifier
+regressions run against the complete Tsuki corpora.
+
 ## Cli Interface
 
 See [./crates/bin/README.md](./crates/bin/README.md) for more details.

@@ -30,6 +30,10 @@ address and the overhead values. `SHA256SUMS` pins the committed bytes, which
 `sbv-cli dump`, driven through the Engine API exactly as a sequencer drives one, so they are
 produced on the same `newPayload` path the rule is enforced on.
 
+The reproduction genesis files omit the retired `l1DataFeeBufferCheck` configuration key so they
+also parse with the current dependency pins. This key does not contribute to the genesis header;
+the recorded witnesses, parent headers and provenance remain unchanged.
+
 ## Reproduction
 
 `generate.sh` is this directory's copy of the node lane's recipe

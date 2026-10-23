@@ -23,14 +23,16 @@ must be consecutive blocks of one chain; gaps, duplicates, and mixed chains are 
 ./target/release/sbv-cli run --parent-header parent.json witness.json
 ```
 
-Use `--hardfork` to verify historical Scroll fixtures with the matching rules:
+Use `--hardfork tsuki` to replay the recorded Tsuki corpus with its matching rules:
 
 ```shell
-jq '.header' ./testdata/scroll/feynman/534352-19604670.json > parent.json
-./target/release/sbv-cli run --hardfork feynman --parent-header parent.json \
-  ./testdata/scroll/feynman/534352-19604671.json \
-  ./testdata/scroll/feynman/534352-19604672.json
+./target/release/sbv-cli run --hardfork tsuki \
+  --parent-header ./testdata/dogeos/base-fee-rule/configured-overhead/parent.json \
+  ./testdata/dogeos/base-fee-rule/configured-overhead/[1-7].json
 ```
+
+The legacy Feynman fixtures lack the slot-101 proof required by the current executor.
+Their replay tests are ignored until complete witnesses are available.
 
 ## Dump witnesses from RPC
 

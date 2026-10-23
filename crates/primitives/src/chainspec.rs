@@ -243,17 +243,15 @@ mod tests {
         );
     }
 
-    /// Chikyū is the exception, and it is recorded here rather than left to be discovered: its
-    /// published genesis hash is a hash the specification carries, not one the DogeOS header
-    /// derivation reproduces from its genesis document. A Chikyū chunk therefore cannot be
-    /// anchored to a genesis header built from the chain spec.
+    /// Chikyū's published genesis hash must match the header derived from its genesis document,
+    /// so its first chunk can be anchored to the same header as the execution client.
     #[test]
-    fn the_chikyu_genesis_hash_is_stored_not_derived() {
+    fn the_derived_chikyu_genesis_header_hashes_to_the_published_genesis_hash() {
         use super::*;
         use dogeos_chainspec::DOGEOS_CHIKYU_GENESIS_HASH;
 
         assert_eq!(DOGEOS_CHIKYU.genesis_hash(), DOGEOS_CHIKYU_GENESIS_HASH);
-        assert_ne!(
+        assert_eq!(
             DOGEOS_CHIKYU.genesis_header().hash_slow(),
             DOGEOS_CHIKYU_GENESIS_HASH
         );
