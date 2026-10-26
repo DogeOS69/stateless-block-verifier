@@ -109,7 +109,7 @@ impl GuestChainConfig {
             chain,
             config,
             genesis_header,
-            // The three registered networks in dogeos-reth tsuki-v0.9 have no explicit override.
+            // The three registered networks in dogeos-reth tsuki-v0.10 have no explicit override.
             tsuki_fee_params_time: None,
         }
     }

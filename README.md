@@ -76,9 +76,9 @@ The workspace uses the following release tags, matching dogeos-reth's dependency
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsuki-v0.9` (`581afef2e3960a4e3e755c9a56412f89b2e2f265`) |
+| `DogeOS69/dogeos-reth` | `tsuki-v0.10` (`7ee230a3f249ec848a377d180ee3188bb178222a`) |
 | `DogeOS69/reth` | `v2.0.0-dogeos-20261023.1` (`42b56304227691327c44415262d23ff680a44ffb`) |
-| `DogeOS69/dogeos-revm` | `tsuki-v0.9` (`d4ac4dac66e5648099a0277eb63f606fc04caff7`) |
+| `DogeOS69/dogeos-revm` | `tsuki-v0.10` (`88df22863f3fd3aa7e26ec6783d9b2425e1f4e2c`) |
 
 Direct and transitive dependencies use the same tags and Git sources; `Cargo.lock` pins their commits.
 The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
