@@ -1,4 +1,4 @@
-//! Genesis headers from dogeos-reth `tsuki-v0.10` (7ee230a3).
+//! Genesis headers synced against dogeos-reth `d96bc4af`.
 //!
 //! State roots were computed once from the upstream allocations on the host. Keep these
 //! headers in sync when repinning dogeos-reth; the host parity tests compare every field.

@@ -51,6 +51,8 @@ unchecked is named under "Residue" below.
   execution client reads the fee schedule from the genesis document, so a forced
   schedule would either ignore the declaration — diverging from the node for
   exactly the chains that make one — or override the fork the caller asked for.
+  Superseded: TsukiV2 replaces `tsukiFeeParamsTime`, and a forced Tsuki also
+  activates TsukiV2.
 - `get_chain_spec` resolves each registered chain by the chain id its own
   genesis document declares. It previously mapped DogeOS mainnet to chain id
   `0xff`, which the frozen mainnet genesis document does not use.
