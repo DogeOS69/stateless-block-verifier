@@ -89,9 +89,6 @@ pub struct GuestChainConfig {
     pub config: ScrollChainConfig,
     /// The chain's canonical genesis header, with its precomputed state root.
     pub genesis_header: Header,
-    /// Independent D48/E10 activation (`tsukiFeeParamsTime`). `None` follows the forced Tsuki
-    /// execution fork; `Some(0)` explicitly activates the fee parameters from timestamp zero.
-    pub tsuki_fee_params_time: Option<u64>,
 }
 
 impl GuestChainConfig {
@@ -109,22 +106,20 @@ impl GuestChainConfig {
             chain,
             config,
             genesis_header,
-            // The three registered networks in dogeos-reth tsuki-v0.10 have no explicit override.
-            tsuki_fee_params_time: None,
         }
     }
 
     /// Build a native chain spec with all DogeOS execution forks through `hardfork` active at zero.
     ///
-    /// An explicit fee-parameter activation keeps its timestamp independently of the forced
-    /// execution schedule. Neither genesis JSON parsing nor genesis state-trie hashing is needed.
+    /// Forcing Tsuki also forces TsukiV2 (see [`forced_through`]). Neither genesis JSON parsing
+    /// nor genesis state-trie hashing is needed.
     pub fn build_force_hardfork(self, hardfork: Hardfork) -> Arc<ChainSpec> {
         let Self {
             chain,
             config,
             genesis_header,
-            tsuki_fee_params_time,
         } = self;
+        let hardfork = forced_through(hardfork);
         let mut hardforks = ChainHardforks::default();
         let baseline = DogeosChainHardforks::dev();
         // Reuse DogeOS's Ethereum execution baseline instead of enabling every Ethereum fork.
@@ -144,10 +139,6 @@ impl GuestChainConfig {
                 },
             );
         }
-        let fee_activation = tsuki_fee_params_time
-            .map(ForkCondition::Timestamp)
-            .unwrap_or_else(|| hardforks.fork(Hardfork::Tsuki));
-        hardforks.insert(TsukiFeeParams, fee_activation);
 
         // Keep header metadata available through EthChainSpec without carrying the allocations
         // or reconstructing the state root. Execution uses `hardforks` and `config` above.
@@ -175,7 +166,7 @@ impl GuestChainConfig {
                 base_fee_params: BaseFeeParamsKind::Variable(
                     vec![
                         (Hardfork::Feynman.boxed(), DOGEOS_BASE_FEE_PARAMS_FEYNMAN),
-                        (TsukiFeeParams.boxed(), DOGEOS_BASE_FEE_PARAMS_TSUKI),
+                        (Hardfork::TsukiV2.boxed(), DOGEOS_BASE_FEE_PARAMS_TSUKI),
                     ]
                     .into(),
                 ),
@@ -187,21 +178,24 @@ impl GuestChainConfig {
     }
 }
 
-// dogeos-chainspec's fee-policy key is private. ChainHardforks identifies keys by name, so use
-// the same name here to preserve its schedule and BaseFeeParamsKind lookup semantics.
-#[derive(Debug, Clone, Copy)]
-struct TsukiFeeParams;
-
-impl HardforkTrait for TsukiFeeParams {
-    fn name(&self) -> &'static str {
-        "TsukiFeeParams"
+/// The last DogeOS fork a forced `hardfork` activates.
+///
+/// TsukiV2 changes only fee and gas-pricing rules, so the codec and the prover have no fork name
+/// for it and keep calling the post-cut era Tsuki. The guest only proves blocks after the
+/// TsukiV2 cut, so forcing Tsuki activates TsukiV2 as well; Tsuki without TsukiV2 is the
+/// historical Chikyu era, which is never proven.
+pub fn forced_through(hardfork: Hardfork) -> Hardfork {
+    match hardfork {
+        Hardfork::Tsuki => Hardfork::TsukiV2,
+        other => other,
     }
 }
 
 /// Build a guest execution spec without loading genesis JSON, enabling DogeOS forks through
-/// `hardfork`. Uses the registered chain's execution settings and precomputed genesis header.
+/// `hardfork` (through TsukiV2 for Tsuki, see [`forced_through`]). Uses the registered chain's
+/// execution settings and precomputed genesis header.
 ///
-/// See [`GuestChainConfig`] for explicitly configured chains and independent fee activation.
+/// See [`GuestChainConfig`] for explicitly configured chains.
 pub fn build_chain_spec_force_hardfork(chain: Chain, hardfork: Hardfork) -> Arc<ChainSpec> {
     GuestChainConfig::for_chain(chain).build_force_hardfork(hardfork)
 }
@@ -294,9 +288,9 @@ mod tests {
         );
     }
 
-    /// The full host spec honors an independent D48/E10 activation.
+    /// The full host spec switches to D48/E10 at a declared TsukiV2 activation.
     #[test]
-    fn a_declared_fee_params_activation_is_honoured() {
+    fn a_declared_tsuki_v2_activation_is_honoured() {
         use super::*;
         use dogeos_chainspec::DogeosChainSpec;
 
@@ -305,7 +299,7 @@ mod tests {
         genesis
             .config
             .extra_fields
-            .insert("tsukiFeeParamsTime".into(), activation.into());
+            .insert("tsukiV2Time".into(), activation.into());
         let declared = DogeosChainSpec::from_custom_genesis(genesis);
 
         assert_eq!(
@@ -319,11 +313,11 @@ mod tests {
     }
 
     /// Compare native configuration against the pinned upstream implementation. This catches
-    /// stale IDs, headers, execution settings and fee overrides when dependencies are repinned.
+    /// stale IDs, headers, execution settings and fee schedules when dependencies are repinned.
     #[test]
     fn guest_specs_match_upstream_execution_configuration() {
         use super::*;
-        use dogeos_chainspec::{DogeosChainSpecBuilder, DogeosHardforkInfo};
+        use dogeos_chainspec::DogeosChainSpecBuilder;
 
         for (full, blueprint) in [
             (
@@ -337,12 +331,6 @@ mod tests {
             assert!(is_registered_chain(full.chain));
             assert_eq!(config.config, full.config);
             assert_eq!(&config.genesis_header, full.genesis_header());
-            assert_eq!(
-                config.tsuki_fee_params_time,
-                DogeosHardforkInfo::try_from(&full.genesis().config.extra_fields)
-                    .unwrap()
-                    .tsuki_fee_params_time
-            );
 
             for &forced in Hardfork::VARIANTS {
                 let guest = config.clone().build_force_hardfork(forced);
@@ -350,7 +338,7 @@ mod tests {
                 for &fork in Hardfork::VARIANTS {
                     builder = builder.with_fork(
                         fork,
-                        if fork <= forced {
+                        if fork <= forced_through(forced) {
                             ForkCondition::Timestamp(0)
                         } else {
                             ForkCondition::Never
@@ -378,53 +366,69 @@ mod tests {
         }
     }
 
-    /// Explicit fee timing must match the node, even when execution forks are forced earlier or
-    /// later. Zero is an explicit activation, and None alone follows the forced Tsuki fork.
+    /// The guest proves only post-cut blocks, which the prover names Tsuki: forcing Tsuki must
+    /// also activate TsukiV2 and its D48/E10 parameters, on every chain including Chikyu, whose
+    /// own schedule activates TsukiV2 later.
     #[test]
-    fn forcing_execution_preserves_independent_fee_activation() {
+    fn forcing_tsuki_also_activates_tsuki_v2() {
         use super::*;
-        use dogeos_chainspec::DogeosChainSpecBuilder;
+        use crate::hardforks::DogeosHardforks;
 
-        for activation in [0, 2_000_000_000, u64::MAX] {
-            for &forced in Hardfork::VARIANTS {
-                let mut config = GuestChainConfig::for_chain(DOGEOS_MAINNET.chain);
-                config.tsuki_fee_params_time = Some(activation);
-                let guest = config.build_force_hardfork(forced);
-                let mut genesis = DOGEOS_MAINNET.genesis().clone();
-                genesis
-                    .config
-                    .extra_fields
-                    .insert("tsukiFeeParamsTime".into(), activation.into());
-                let mut builder = DogeosChainSpecBuilder::dogeos_mainnet().genesis(genesis);
-                for &fork in Hardfork::VARIANTS {
-                    builder = builder.with_fork(
-                        fork,
-                        if fork <= forced {
-                            ForkCondition::Timestamp(0)
-                        } else {
-                            ForkCondition::Never
-                        },
-                    );
-                }
-                let expected = builder.build(DOGEOS_MAINNET.config);
-                for timestamp in [0, activation.saturating_sub(1), activation, u64::MAX] {
-                    assert_eq!(
-                        guest.base_fee_params_at_timestamp(timestamp),
-                        expected.base_fee_params_at_timestamp(timestamp)
-                    );
-                }
+        assert_eq!(forced_through(Hardfork::Tsuki), Hardfork::TsukiV2);
+        assert_eq!(forced_through(Hardfork::TsukiV2), Hardfork::TsukiV2);
+        assert_eq!(forced_through(Hardfork::GalileoV2), Hardfork::GalileoV2);
+        assert!(!DOGEOS_CHIKYU.is_tsuki_v2_active_at_timestamp(1_790_030_900));
+
+        for chain in [
+            DOGEOS_MAINNET.chain,
+            DOGEOS_CHIKYU.chain,
+            DOGEOS_DEV.chain,
+            Chain::from_id(42424242),
+        ] {
+            for forced in [Hardfork::Tsuki, Hardfork::TsukiV2] {
+                let spec = build_chain_spec_force_hardfork(chain, forced);
                 assert_eq!(
-                    guest.fork(TsukiFeeParams),
-                    ForkCondition::Timestamp(activation)
+                    spec.fork(Hardfork::TsukiV2),
+                    ForkCondition::Timestamp(0),
+                    "chain {chain}"
                 );
-                assert_eq!(guest.fork(Hardfork::Tsuki), expected.fork(Hardfork::Tsuki));
-                assert_eq!(guest.genesis_hash(), expected.genesis_hash());
+                assert!(spec.is_tsuki_v2_active_at_timestamp(0), "chain {chain}");
+                assert_eq!(
+                    spec.base_fee_params_at_timestamp(0),
+                    BaseFeeParams::new(48, 10),
+                    "chain {chain}"
+                );
             }
+            // Below Tsuki, TsukiV2 stays off and the Feynman parameters apply.
+            let spec = build_chain_spec_force_hardfork(chain, Hardfork::GalileoV2);
+            assert_eq!(spec.fork(Hardfork::TsukiV2), ForkCondition::Never);
+            assert_eq!(
+                spec.base_fee_params_at_timestamp(u64::MAX),
+                BaseFeeParams::new(8, 2)
+            );
         }
     }
 
-    /// The registered chains declare no delayed activation, so forcing a fork is representable
-    /// for them and gives the fork's own parameters.
+    /// Mainnet and the development chain run TsukiV2 from genesis, in both the host spec and the
+    /// guest configuration derived from it.
+    #[test]
+    fn mainnet_at_genesis_activates_tsuki_v2_at_zero() {
+        use super::*;
+        use crate::hardforks::DogeosHardforks;
+
+        for spec in [&*DOGEOS_MAINNET, &*DOGEOS_DEV] {
+            assert_eq!(spec.fork(Hardfork::Tsuki), ForkCondition::Timestamp(0));
+            assert_eq!(spec.fork(Hardfork::TsukiV2), ForkCondition::Timestamp(0));
+            assert!(spec.is_tsuki_v2_active_at_timestamp(0));
+            assert_eq!(
+                spec.base_fee_params_at_timestamp(0),
+                BaseFeeParams::new(48, 10)
+            );
+        }
+    }
+
+    /// Forcing a fork gives that fork's own fee parameters: D48/E10 from TsukiV2 (and so from a
+    /// forced Tsuki), D8/E2 below it.
     #[test]
     fn forcing_a_fork_gives_that_forks_fee_parameters() {
         use super::*;
@@ -437,12 +441,13 @@ mod tests {
                 BaseFeeParams::new(48, 10),
                 "chain {chain}"
             );
-            assert_eq!(
-                build_chain_spec_force_hardfork(chain, Hardfork::Feynman)
-                    .base_fee_params_at_timestamp(0),
-                BaseFeeParams::new(8, 2),
-                "chain {chain}"
-            );
+            for forced in [Hardfork::Feynman, Hardfork::GalileoV2] {
+                assert_eq!(
+                    build_chain_spec_force_hardfork(chain, forced).base_fee_params_at_timestamp(0),
+                    BaseFeeParams::new(8, 2),
+                    "chain {chain}"
+                );
+            }
         }
     }
 
@@ -460,5 +465,6 @@ mod tests {
         assert!(!is_registered_chain(chain_spec.chain));
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::GalileoV2, 0));
         assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::Tsuki, 0));
+        assert!(chain_spec.is_fork_active_at_timestamp(Hardfork::TsukiV2, 0));
     }
 }

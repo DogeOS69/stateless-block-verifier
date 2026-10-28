@@ -72,15 +72,15 @@ schedules against the pinned implementation.
 
 ## DogeOS dependency pins
 
-The workspace uses the following release tags, matching dogeos-reth's dependency pins:
+The workspace uses the following revisions, matching dogeos-reth's dependency pins:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsuki-v0.10` (`7ee230a3f249ec848a377d180ee3188bb178222a`) |
+| `DogeOS69/dogeos-reth` | `tsukiv2/fork` (`d96bc4af2b28ba6f19c5e11e402b56fa5a400bec`) |
 | `DogeOS69/reth` | `v2.0.0-dogeos-20261023.1` (`42b56304227691327c44415262d23ff680a44ffb`) |
-| `DogeOS69/dogeos-revm` | `tsuki-v0.10` (`88df22863f3fd3aa7e26ec6783d9b2425e1f4e2c`) |
+| `DogeOS69/dogeos-revm` | `tsukiv2/fork` (`43097a245c2a451d70478250345082cdf620d258`) |
 
-Direct and transitive dependencies use the same tags and Git sources; `Cargo.lock` pins their commits.
+Direct and transitive dependencies use the same revisions and Git sources; `Cargo.lock` pins their commits.
 The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
 blocks. Witnesses must include the account/storage proof or an authenticated absence. Legacy
 Feynman replay tests are ignored because their witnesses lack this proof; general verifier

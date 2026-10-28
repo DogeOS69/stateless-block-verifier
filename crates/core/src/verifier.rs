@@ -259,6 +259,8 @@ impl VerifyContext<'_> {
             // Timestamps are monotonic from the trusted parent, so a chunk cannot backdate a block
             // below the activation to skip its base-fee rule: `validate_headers` rejected that above.
             // A chunk that legitimately spans the transition still has its Tsuki blocks checked.
+            // The rule starts at Tsuki; its EIP-1559 parameters and cap switch at TsukiV2, which
+            // the base-fee provider reads from the same schedule.
             if chain_spec.is_tsuki_active_at_timestamp(block.timestamp()) {
                 check_base_fee(&chain_spec, &trie, &bytecode, block_parent, block)?;
             }
@@ -553,7 +555,7 @@ mod base_fee_rule_tests {
         keccak256,
         types::{
             consensus::Header,
-            evm::{DEFAULT_BASE_FEE_OVERHEAD, MAX_L2_BASE_FEE},
+            evm::{DEFAULT_BASE_FEE_OVERHEAD, MAX_L2_BASE_FEE, PRE_TSUKI_V2_MAX_L2_BASE_FEE},
             rpc::ExecutionWitness,
         },
     };
@@ -669,7 +671,8 @@ mod base_fee_rule_tests {
         assert_eq!(system_config(&spec), Address::ZERO);
     }
 
-    /// Mainnet proves with Tsuki's D48/E10 parameters, earlier forks with Feynman's D8/E2.
+    /// Mainnet proves with TsukiV2's D48/E10 parameters (a forced Tsuki forces TsukiV2), earlier
+    /// forks with Feynman's D8/E2.
     #[test]
     fn the_eip1559_parameters_follow_the_proven_fork() {
         use sbv_primitives::chainspec::BaseFeeParams;
@@ -795,6 +798,166 @@ mod base_fee_rule_tests {
                 MAX_L2_BASE_FEE
             );
         }
+    }
+
+    /// A forced Tsuki proves under TsukiV2's rule, D48/E10 with the 420,000 gwei cap, on every
+    /// chain. Chikyu's own schedule keeps D8/E2 and the 10 gwei cap through its Tsuki history, so
+    /// the same parent derives a different child fee there; the guest never proves that history.
+    #[test]
+    fn a_forced_tsuki_checks_the_tsuki_v2_fee_rule() {
+        let overhead = 100_000_000;
+        // A full block 9.4 gwei above the overhead grows it by 9/48, past the old 10 gwei cap.
+        let tsuki_v2_fee = 11_262_500_000;
+        let mut parent = parent(9_500_000_000, GAS_LIMIT);
+
+        for chain in [DOGEOS_MAINNET.chain, DOGEOS_CHIKYU.chain] {
+            let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
+            let state = state_with(&[(
+                system_config(&chain_spec),
+                &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(overhead))],
+            )]);
+            let bytecode = B256Map::default();
+            let check = |fee| {
+                check_base_fee(
+                    &chain_spec,
+                    &state,
+                    &bytecode,
+                    &parent,
+                    &block_with_fee(fee, parent.timestamp + 1),
+                )
+            };
+
+            check(tsuki_v2_fee).expect("the TsukiV2 fee verifies");
+            assert!(
+                matches!(
+                    check(PRE_TSUKI_V2_MAX_L2_BASE_FEE),
+                    Err(StatelessValidationError::BaseFeeMismatch { expected, .. })
+                        if expected == tsuki_v2_fee
+                ),
+                "chain {chain}: the fee clamped at 10 gwei is rejected"
+            );
+        }
+
+        // Chikyu's Tsuki history, before its TsukiV2: D8/E2 grows the excess by 1/8, and the
+        // result is clamped at 10 gwei.
+        let chikyu = DOGEOS_CHIKYU.clone();
+        parent.timestamp = 1_790_030_900;
+        assert!(chikyu.is_tsuki_active_at_timestamp(parent.timestamp + 1));
+        let state = state_with(&[(
+            system_config(&chikyu),
+            &[(L2_BASE_FEE_OVERHEAD_SLOT, U256::from(overhead))],
+        )]);
+        assert_eq!(
+            next_base_fee(&chikyu, &state, &parent).unwrap(),
+            PRE_TSUKI_V2_MAX_L2_BASE_FEE
+        );
+    }
+
+    /// A sparse state holding the L2SystemConfig overhead `slot_101`, or no account at all when it
+    /// is zero, as dogeos-reth's vectors read it.
+    fn overhead_state(chain_spec: &ChainSpec, slot_101: &serde_json::Value) -> SparseState {
+        let slot_101 =
+            U256::from_str_radix(slot_101.as_str().unwrap().trim_start_matches("0x"), 16).unwrap();
+        if slot_101.is_zero() {
+            state_with(&[])
+        } else {
+            state_with(&[(
+                system_config(chain_spec),
+                &[(L2_BASE_FEE_OVERHEAD_SLOT, slot_101)],
+            )])
+        }
+    }
+
+    /// dogeos-reth's base-fee parity vectors, evaluated through the witness state the guest reads.
+    ///
+    /// Mainnet rows run on the forced-Tsuki guest spec and on the host spec. Chikyu rows (before its
+    /// TsukiV2) and the delayed-TsukiV2 rows run on their host schedules: the guest never proves a
+    /// pre-TsukiV2 block, but the formula it shares with the node must still agree on them.
+    #[test]
+    fn dogeos_reth_parity_vectors_hold_through_the_witness_state() {
+        use sbv_primitives::chainspec::scroll::DogeosChainSpec;
+
+        let document: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../testdata/dogeos/base-fee-parity/base-fee-parity-vectors.json"
+        ))
+        .unwrap();
+        let mainnet = mainnet_tsuki();
+        let chikyu = DOGEOS_CHIKYU.clone();
+        let tsuki_v2_after_tsuki = {
+            let mut genesis = DOGEOS_MAINNET.genesis().clone();
+            for (field, time) in [("tsukiTime", 0), ("tsukiV2Time", 100)] {
+                genesis
+                    .config
+                    .extra_fields
+                    .insert(field.into(), time.into());
+            }
+            Arc::new(DogeosChainSpec::from_custom_genesis(genesis))
+        };
+
+        let rows = document["vectors"].as_array().unwrap();
+        assert!(!rows.is_empty());
+        for row in rows {
+            let chain = row["chain"].as_str().unwrap();
+            let label = format!("{chain} {}", row["note"].as_str().unwrap_or_default());
+            let specs = match chain {
+                "mainnet" => vec![&mainnet, &*DOGEOS_MAINNET],
+                "chikyu" => vec![&chikyu],
+                "tsuki-v2-after-tsuki" => vec![&tsuki_v2_after_tsuki],
+                other => panic!("unknown parity chain {other}"),
+            };
+            for chain_spec in specs {
+                let state = overhead_state(chain_spec, &row["slot_101"]);
+                let mut parent = parent(
+                    row["parent_base_fee"].as_u64().unwrap(),
+                    row["parent_gas_used"].as_u64().unwrap(),
+                );
+                parent.gas_limit = row["parent_gas_limit"].as_u64().unwrap();
+                parent.timestamp = row["timestamp"].as_u64().unwrap() - 1;
+                assert_eq!(
+                    next_base_fee(chain_spec, &state, &parent).unwrap(),
+                    row["expected_base_fee"].as_u64().unwrap(),
+                    "{label}"
+                );
+            }
+        }
+    }
+
+    /// Chikyu's recorded Tsuki-era headers, copied from dogeos-reth: its own schedule reproduces
+    /// every recorded fee, and the forced-Tsuki guest spec derives the TsukiV2 fee instead, which
+    /// is why that history stays before TsukiV2 and is never proven.
+    #[test]
+    fn chikyu_history_follows_its_schedule_and_differs_under_tsuki_v2() {
+        let document: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../testdata/dogeos/base-fee-parity/chikyu-base-fee-history.json"
+        ))
+        .unwrap();
+        let chikyu = DOGEOS_CHIKYU.clone();
+        let guest = build_chain_spec_force_hardfork(DOGEOS_CHIKYU.chain, Hardfork::Tsuki);
+
+        let rows = document["vectors"].as_array().unwrap();
+        assert!(!rows.is_empty());
+        let mut differing = 0;
+        for row in rows {
+            let label = format!("block {}", row["number"]);
+            let mut parent = parent(
+                row["parent_base_fee"].as_u64().unwrap(),
+                row["parent_gas_used"].as_u64().unwrap(),
+            );
+            parent.gas_limit = row["parent_gas_limit"].as_u64().unwrap();
+            parent.timestamp = row["timestamp"].as_u64().unwrap() - 1;
+            let recorded = row["base_fee"].as_u64().unwrap();
+            let under_tsuki_v2 = row["base_fee_under_tsuki_v2"].as_u64().unwrap();
+            for (chain_spec, expected) in [(&chikyu, recorded), (&guest, under_tsuki_v2)] {
+                let state = overhead_state(chain_spec, &row["parent_slot_101"]);
+                assert_eq!(
+                    next_base_fee(chain_spec, &state, &parent).unwrap(),
+                    expected,
+                    "{label}"
+                );
+            }
+            differing += usize::from(recorded != under_tsuki_v2);
+        }
+        assert!(differing > 0, "the history must exercise the rule change");
     }
 
     /// An overhead that does not fit a `u64`, or one above the parent's base fee, saturates
@@ -1776,10 +1939,12 @@ mod anchor_tests {
         let mut genesis = sbv_primitives::chainspec::scroll::DOGEOS_MAINNET
             .genesis()
             .clone();
-        genesis
-            .config
-            .extra_fields
-            .insert("tsukiTime".into(), activation.into());
+        for field in ["tsukiTime", "tsukiV2Time"] {
+            genesis
+                .config
+                .extra_fields
+                .insert(field.into(), activation.into());
+        }
         genesis.config.chain_id = blocks[0].chain_id;
         let spec: Arc<ChainSpec> = Arc::new(DogeosChainSpec::from_custom_genesis(genesis));
         // Tsuki is scheduled, but not at any block in this chunk.
