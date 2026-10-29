@@ -59,7 +59,7 @@ alloy-primitives = { version = "=1.5.7", default-features = false, features = ["
 alloy-evm = { version = "=0.30.0", default-features = false }
 
 # Match dogeos-reth's pins so direct and transitive dependencies share a Cargo source.
-revm-scroll = { git = "https://github.com/DogeOS69/dogeos-revm.git", rev = "43097a245c2a451d70478250345082cdf620d258", default-features = false }
+revm-scroll = { git = "https://github.com/DogeOS69/dogeos-revm.git", rev = "a36ef169a4b4df77f0cf9ff450721a0f46a91e42", default-features = false }
 
 reth-consensus = { git = "https://github.com/DogeOS69/reth.git", tag = "v2.0.0-dogeos-20261023.1", default-features = false }
 reth-chainspec = { git = "https://github.com/DogeOS69/reth.git", tag = "v2.0.0-dogeos-20261023.1", default-features = false }
@@ -69,13 +69,13 @@ reth-execution-types = { git = "https://github.com/DogeOS69/reth.git", tag = "v2
 reth-primitives-traits = { version = "=0.1.1", default-features = false }
 reth-trie-common = { git = "https://github.com/DogeOS69/reth.git", tag = "v2.0.0-dogeos-20261023.1", default-features = false }
 
-dogeos-reth-consensus = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-hardforks = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-protocol-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
-dogeos-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "d96bc4af2b28ba6f19c5e11e402b56fa5a400bec", default-features = false }
+dogeos-reth-consensus = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-hardforks = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-protocol-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
+dogeos-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "172e9967ced7188e8afa60d14be9ba9a329fb2f2", default-features = false }
 
 risc0-ethereum-trie = { git = "https://github.com/risc0/risc0-ethereum" }
 
