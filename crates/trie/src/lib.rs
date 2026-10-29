@@ -86,7 +86,7 @@ impl SparseState {
         self.storages
             .get_mut()
             .entry(hashed_address)
-            .or_insert_entry(RlpTrie::default())
+            .insert(RlpTrie::default())
             .into_mut()
     }
 
@@ -225,5 +225,56 @@ impl SparseState {
             .for_each(|hashed_address| self.remove_account(hashed_address));
 
         self.state.hash()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn account_post_state(address: Address, storage: Option<HashedStorage>) -> HashedPostState {
+        let hashed_address = keccak256(address);
+        let mut state = HashedPostState::default();
+        state
+            .accounts
+            .insert(hashed_address, Some(Default::default()));
+        if let Some(storage) = storage {
+            state.storages.insert(hashed_address, storage);
+        }
+        state
+    }
+
+    #[test]
+    fn wiping_storage_drops_cached_slots() {
+        let address = Address::repeat_byte(0x11);
+        let slot = U256::from(1);
+        let hashed_slot = keccak256(B256::from(slot));
+
+        let (mut state, _) =
+            SparseState::new(&ExecutionWitness::default(), EMPTY_ROOT_HASH).unwrap();
+        state.calculate_state_root(account_post_state(
+            address,
+            Some(HashedStorage::from_iter(
+                false,
+                [(hashed_slot, U256::from(42))],
+            )),
+        ));
+
+        // read the slot so the storage trie is cached with it
+        assert!(state.account(address).unwrap().is_some());
+        assert_eq!(state.storage(address, slot).unwrap(), U256::from(42));
+
+        let root =
+            state.calculate_state_root(account_post_state(address, Some(HashedStorage::new(true))));
+
+        let (mut expected, _) =
+            SparseState::new(&ExecutionWitness::default(), EMPTY_ROOT_HASH).unwrap();
+        let expected_root = expected.calculate_state_root(account_post_state(address, None));
+        assert_eq!(root, expected_root);
+        assert_eq!(
+            state.account(address).unwrap().unwrap().storage_root,
+            EMPTY_ROOT_HASH
+        );
+        assert_eq!(state.storage(address, slot).unwrap(), U256::ZERO);
     }
 }
