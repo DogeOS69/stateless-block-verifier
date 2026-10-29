@@ -1,10 +1,10 @@
 use auto_impl::auto_impl;
 use itertools::Itertools;
 use sbv_primitives::{
-    B256, Bytes, ChainId, SignatureError, U256,
+    B256, Bytes, ChainId, U256,
     types::{
         Header,
-        consensus::{SignerRecoverable, TxEnvelope},
+        consensus::{RecoveryError, SignerRecoverable, TxEnvelope},
         eips::eip4895::Withdrawals,
         reth::primitives::{Block, BlockBody, RecoveredBlock, SealedBlock},
     },
@@ -62,13 +62,12 @@ impl BlockWitness {
     }
 
     /// Build execution context from the witness.
-    pub fn build_reth_block(&self) -> Result<RecoveredBlock<Block>, SignatureError> {
+    pub fn build_reth_block(&self) -> Result<RecoveredBlock<Block>, RecoveryError> {
         let senders = self
             .transactions
             .iter()
             .map(|tx| tx.recover_signer())
-            .collect::<Result<Vec<_>, _>>()
-            .expect("Failed to recover signer");
+            .collect::<Result<Vec<_>, _>>()?;
 
         let body = BlockBody {
             transactions: self.transactions.clone(),
@@ -176,6 +175,21 @@ mod tests {
             let witness: BlockWitness = serde_json::from_str(json).unwrap();
             assert_serde_roundtrip(&witness);
         }
+    }
+
+    #[test]
+    fn build_reth_block_returns_an_error_for_an_unrecoverable_signer() {
+        let signature = Signature::new(U256::ZERO, U256::ZERO, false);
+        let witness = BlockWitness {
+            chain_id: 1,
+            header: Header::default(),
+            prev_state_root: B256::ZERO,
+            transactions: vec![TxLegacy::default().into_signed(signature).into()],
+            withdrawals: None,
+            states: vec![],
+            codes: vec![],
+        };
+        assert!(witness.build_reth_block().is_err());
     }
 
     #[test]
