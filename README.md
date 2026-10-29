@@ -66,7 +66,7 @@ The workspace uses the following revisions, matching dogeos-reth's dependency pi
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsukiv2/fork` (`172e9967ced7188e8afa60d14be9ba9a329fb2f2`) |
+| `DogeOS69/dogeos-reth` | `tsuki-v0.11` (`f493cb9f561482f48d6b0711434880b84e991f04`) |
 | `DogeOS69/reth` | `v2.0.0-dogeos-20261023.1` (`42b56304227691327c44415262d23ff680a44ffb`) |
 | `DogeOS69/dogeos-revm` | `tsuki-v0.11` (`a36ef169a4b4df77f0cf9ff450721a0f46a91e42`) |
 
