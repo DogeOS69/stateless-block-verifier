@@ -30,9 +30,11 @@ address and the overhead values. `SHA256SUMS` pins the committed bytes, which
 `sbv-cli dump`, driven through the Engine API exactly as a sequencer drives one, so they are
 produced on the same `newPayload` path the rule is enforced on.
 
-The reproduction genesis files omit the retired `l1DataFeeBufferCheck` configuration key so they
-also parse with the current dependency pins. This key does not contribute to the genesis header;
-the recorded witnesses, parent headers and provenance remain unchanged.
+The reproduction genesis files omit the retired `l1DataFeeBufferCheck` configuration key and
+declare `tsukiV2Time` at 0 (required alongside `tsukiTime`) so they also parse with the current
+dependency pins. Neither key contributes to the genesis header. The corpora were recorded with
+D48/E10 from genesis, which is what TsukiV2 at 0 gives, so the recorded witnesses, parent headers
+and provenance remain unchanged.
 
 ## Reproduction
 

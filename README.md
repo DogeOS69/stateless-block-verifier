@@ -49,20 +49,10 @@ retains the chain's execution configuration (including the L2SystemConfig addres
 baseline, fee schedule and canonical genesis header. `is_registered_chain` also avoids loading
 genesis. Unknown chain IDs keep the development fallback and its existing verification limits.
 
-For a chain with an independent `tsukiFeeParamsTime`, configure it explicitly in the guest:
-
-```rust
-use sbv_primitives::{chainspec::GuestChainConfig, hardforks::Hardfork};
-
-let mut config = GuestChainConfig::for_chain(chain);
-config.tsuki_fee_params_time = Some(activation_timestamp);
-let chain_spec = config.build_force_hardfork(Hardfork::Tsuki);
-```
-
-The explicit fee timestamp is preserved even when execution forks are forced. `None` follows
-the forced Tsuki condition; `Some(0)` activates D48/E10 from timestamp zero. These inputs must
-be fixed by the guest program or authenticated by the caller, not taken from unchecked witnesses.
-The currently pinned networks have no explicit fee-time override.
+Forcing `Hardfork::Tsuki` also activates TsukiV2 (`forced_through`): the guest only proves
+blocks after the TsukiV2 cut, which the codec and prover name Tsuki. A forced Tsuki spec
+therefore always proves under D48/E10 and the 420,000 gwei base-fee cap; there is no separate
+fee activation. Forcing a fork below Tsuki leaves TsukiV2 inactive (D8/E2, 10 gwei cap).
 
 Guest specs omit genesis allocations and JSON extension fields; use the host-only
 `get_chain_spec` / `get_chain_spec_or_build` APIs when a full genesis is required. On dependency
@@ -72,15 +62,15 @@ schedules against the pinned implementation.
 
 ## DogeOS dependency pins
 
-The workspace uses the following release tags, matching dogeos-reth's dependency pins:
+The workspace uses the following revisions, matching dogeos-reth's dependency pins:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsuki-v0.10` (`7ee230a3f249ec848a377d180ee3188bb178222a`) |
+| `DogeOS69/dogeos-reth` | `tsuki-v0.11` (`f493cb9f561482f48d6b0711434880b84e991f04`) |
 | `DogeOS69/reth` | `v2.0.0-dogeos-20261023.1` (`42b56304227691327c44415262d23ff680a44ffb`) |
-| `DogeOS69/dogeos-revm` | `tsuki-v0.10` (`88df22863f3fd3aa7e26ec6783d9b2425e1f4e2c`) |
+| `DogeOS69/dogeos-revm` | `tsuki-v0.11` (`a36ef169a4b4df77f0cf9ff450721a0f46a91e42`) |
 
-Direct and transitive dependencies use the same tags and Git sources; `Cargo.lock` pins their commits.
+Direct and transitive dependencies use the same revisions and Git sources; `Cargo.lock` pins their commits.
 The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
 blocks. Witnesses must include the account/storage proof or an authenticated absence. Legacy
 Feynman replay tests are ignored because their witnesses lack this proof; general verifier
