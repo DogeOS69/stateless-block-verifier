@@ -1,4 +1,4 @@
-//! Genesis headers synced against dogeos-reth `d96bc4af`.
+//! Genesis headers synced against dogeos-reth `tsuki-v0.12` (`23a1737c`).
 //!
 //! State roots were computed once from the upstream allocations on the host. Keep these
 //! headers in sync when repinning dogeos-reth; the host parity tests compare every field.
@@ -8,7 +8,7 @@ use alloy_primitives::{U256, b256, bytes};
 
 pub(super) fn mainnet() -> Header {
     Header {
-        state_root: b256!("ef6cb691700c8c335c6c3cba3e92eda8defc1d7d9470a9ea9e0fcf62392da7a0"),
+        state_root: b256!("b664af5befb987dc28f8698efd26d819c44299c6c7dae42822e9fb4d2fcab0e9"),
         gas_limit: 30_000_000,
         difficulty: U256::from(1),
         base_fee_per_gas: Some(1_000_000_000),
