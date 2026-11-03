@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use alloy_consensus::Header;
-use alloy_primitives::U256;
+use alloy_primitives::{U256, address};
 use dogeos_chainspec::{
-    DOGEOS_BASE_FEE_PARAMS_FEYNMAN, DOGEOS_BASE_FEE_PARAMS_TSUKI, ScrollChainConfig,
+    DOGEOS_BASE_FEE_PARAMS_FEYNMAN, DOGEOS_BASE_FEE_PARAMS_TSUKI, L1Config,
+    MAX_TX_PAYLOAD_BYTES_PER_BLOCK, SCROLL_FEE_VAULT_ADDRESS, ScrollChainConfig,
 };
 use dogeos_hardforks::DogeosChainHardforks;
 use reth_chainspec::BaseFeeParamsKind;
@@ -30,10 +31,12 @@ pub type ChainSpec = scroll::DogeosChainSpec;
 /// This initializes the selected upstream genesis document. Guests should use
 /// [`build_chain_spec_force_hardfork`] instead.
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    registered(chain).map(|entry| match entry {
-        RegisteredChain::Mainnet => DOGEOS_MAINNET.clone(),
-        RegisteredChain::Chikyu => DOGEOS_CHIKYU.clone(),
-        RegisteredChain::Dev => DOGEOS_DEV.clone(),
+    registered(chain).and_then(|entry| match entry {
+        RegisteredChain::Mainnet => Some(DOGEOS_MAINNET.clone()),
+        RegisteredChain::Chikyu => Some(DOGEOS_CHIKYU.clone()),
+        RegisteredChain::Dev => Some(DOGEOS_DEV.clone()),
+        // DevNet has no published genesis document; use `GuestChainConfig`.
+        RegisteredChain::Devnet => None,
     })
 }
 
@@ -49,12 +52,30 @@ enum RegisteredChain {
     Mainnet,
     Chikyu,
     Dev,
+    Devnet,
 }
+
+/// DogeOS DevNet (chain 221122) execution settings, copied from its genesis document.
+const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
+    fee_vault_address: Some(SCROLL_FEE_VAULT_ADDRESS),
+    max_tx_payload_bytes_per_block: MAX_TX_PAYLOAD_BYTES_PER_BLOCK,
+    l1_config: L1Config {
+        l1_chain_id: 111_111,
+        l1_message_queue_address: address!("F5365F38a51074655e9DCd6119D0D894117e6623"),
+        l1_message_queue_v2_address: address!("9C1c423077ACf5550dbDE164d6ab018326d35404"),
+        scroll_chain_address: address!("F36D083aEBC35f6778445fB42b359F42Ac39e171"),
+        l2_system_config_address: address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd"),
+        num_l1_messages_per_block: 10,
+    },
+    // Set from DevNet's frozen checkpoint when it is upgraded.
+    withdrawal_queue_upgrade: None,
+};
 
 fn registered(chain: Chain) -> Option<RegisteredChain> {
     match chain.id() {
         1_122_005 => Some(RegisteredChain::Mainnet),
         6_281_971 => Some(RegisteredChain::Chikyu),
+        221_122 => Some(RegisteredChain::Devnet),
         id if id == Chain::dev().id() => Some(RegisteredChain::Dev),
         _ => None,
     }
@@ -101,6 +122,7 @@ impl GuestChainConfig {
             RegisteredChain::Mainnet => (ScrollChainConfig::dogeos_mainnet(), genesis::mainnet()),
             RegisteredChain::Chikyu => (ScrollChainConfig::dogeos_chikyu(), genesis::chikyu()),
             RegisteredChain::Dev => (ScrollChainConfig::dev(), genesis::dev()),
+            RegisteredChain::Devnet => (DOGEOS_DEVNET_CONFIG, genesis::devnet()),
         };
         Self {
             chain,
@@ -285,6 +307,25 @@ mod tests {
         assert_eq!(
             DOGEOS_CHIKYU.genesis_header().hash_slow(),
             DOGEOS_CHIKYU_GENESIS_HASH
+        );
+    }
+
+    /// DevNet's guest header must hash to its block 0, read from a DevNet node.
+    #[test]
+    fn the_devnet_genesis_header_hashes_to_its_block_zero() {
+        use super::*;
+        use alloy_primitives::b256;
+
+        let devnet = Chain::from_id(221_122);
+        assert!(is_registered_chain(devnet));
+        let config = GuestChainConfig::for_chain(devnet);
+        assert_eq!(
+            config.config.l1_config.l2_system_config_address,
+            address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd")
+        );
+        assert_eq!(
+            config.genesis_header.hash_slow(),
+            b256!("4bc34b953d056b7444b9cb3087611092aae68ed80a8e51ce41fc0283def1bc02")
         );
     }
 

@@ -69,13 +69,13 @@ reth-execution-types = { git = "https://github.com/DogeOS69/reth.git", tag = "ts
 reth-primitives-traits = { version = "=0.1.1", default-features = false }
 reth-trie-common = { git = "https://github.com/DogeOS69/reth.git", tag = "tsuki-v0.13", default-features = false }
 
-dogeos-reth-consensus = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-hardforks = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-protocol-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
-dogeos-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", tag = "tsuki-v0.13", default-features = false }
+dogeos-reth-consensus = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-chainspec = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-hardforks = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-protocol-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-reth-evm = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-reth-primitives = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
+dogeos-rpc-types = { git = "https://github.com/DogeOS69/dogeos-reth.git", rev = "47c136d5a834b759ff7fcd1e5b176502b318bdfb", default-features = false }
 
 risc0-ethereum-trie = { git = "https://github.com/risc0/risc0-ethereum" }
 
