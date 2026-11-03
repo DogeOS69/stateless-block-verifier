@@ -66,9 +66,9 @@ The workspace uses the following revisions, matching dogeos-reth's dependency pi
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsuki-v0.12` (`23a1737cba530e419ec207ccec445eb52904d9f9`) |
-| `DogeOS69/reth` | `tsuki-v0.12` (`bb3122afa33df077840b7e303a84d9b0dc6841ef`) |
-| `DogeOS69/dogeos-revm` | `tsuki-v0.12` (`4633937125b70088bb12a214356cddb24cde18d0`) |
+| `DogeOS69/dogeos-reth` | `tsuki-v0.13` (`1654dbe9cb08e30a193d8ead9b996e784ffea84d`) |
+| `DogeOS69/reth` | `tsuki-v0.13` (`09c6b809af6d7c2da35f48dd125924e8da793553`) |
+| `DogeOS69/dogeos-revm` | `tsuki-v0.13` (`516ff663b2fb2503dba8ef6b0d667f16334ac05a`) |
 
 Direct and transitive dependencies use the same revisions and Git sources; `Cargo.lock` pins their commits.
 The executor now reads L2SystemConfig slot 101 before execution on every fork, including empty
