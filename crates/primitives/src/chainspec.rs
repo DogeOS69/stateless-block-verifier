@@ -29,7 +29,8 @@ pub type ChainSpec = scroll::DogeosChainSpec;
 /// Get the full host chain spec, including genesis allocations.
 ///
 /// This initializes the selected upstream genesis document. Guests should use
-/// [`build_chain_spec_force_hardfork`] instead.
+/// [`build_chain_spec_force_hardfork`] instead. A registered chain without a genesis document
+/// here (DevNet) returns `None`.
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
     registered(chain).and_then(|entry| match entry {
         RegisteredChain::Mainnet => Some(DOGEOS_MAINNET.clone()),
@@ -57,7 +58,8 @@ enum RegisteredChain {
 
 /// DogeOS DevNet (chain 221122) execution settings, copied from the genesis document of the
 /// deployment being upgraded. Each DevNet redeploy keeps the chain ID but gets a new genesis and
-/// new contract addresses, so these values and [`genesis::devnet`] are replaced with it.
+/// new contract addresses, so these values and [`genesis::devnet`] must be replaced on every
+/// redeploy.
 const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
     fee_vault_address: Some(SCROLL_FEE_VAULT_ADDRESS),
     max_tx_payload_bytes_per_block: MAX_TX_PAYLOAD_BYTES_PER_BLOCK,
@@ -259,8 +261,8 @@ mod tests {
         assert!(chain_spec.is_fork_active_at_block(Hardfork::Galileo, 10));
     }
 
-    /// Every registered chain resolves by the chain id its own genesis document declares, so a
-    /// genesis change cannot leave the lookup pointing at the wrong specification.
+    /// Every chain with a host genesis document resolves by the chain id that document declares,
+    /// so a genesis change cannot leave the lookup pointing at the wrong specification.
     #[test]
     fn registered_chains_resolve_by_their_own_chain_id() {
         use super::*;
@@ -320,6 +322,7 @@ mod tests {
 
         let devnet = Chain::from_id(221_122);
         assert!(is_registered_chain(devnet));
+        assert!(get_chain_spec(devnet).is_none());
         let config = GuestChainConfig::for_chain(devnet);
         assert_eq!(
             config.config.l1_config.l2_system_config_address,

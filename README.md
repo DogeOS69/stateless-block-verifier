@@ -55,18 +55,22 @@ therefore always proves under D48/E10 and the 420,000 gwei base-fee cap; there i
 fee activation. Forcing a fork below Tsuki leaves TsukiV2 inactive (D8/E2, 10 gwei cap).
 
 Guest specs omit genesis allocations and JSON extension fields; use the host-only
-`get_chain_spec` / `get_chain_spec_or_build` APIs when a full genesis is required. On dependency
+`get_chain_spec` / `get_chain_spec_or_build` APIs when a full genesis is required. DevNet
+(chain 221122) is registered for guests only: `get_chain_spec` returns `None` for it, and
+`get_chain_spec_or_build` gives it the development blueprint, which the verifier refuses. On dependency
 updates, keep `crates/primitives/src/chainspec/genesis.rs` and the native chain registry in sync
 with the upstream specs. Host parity tests compare headers, chain configuration and fork/fee
 schedules against the pinned implementation.
 
 ## DogeOS dependency pins
 
-The workspace uses the following revisions, matching dogeos-reth's dependency pins:
+The workspace uses the following revisions, matching dogeos-reth's dependency pins. dogeos-reth
+is pinned to a commit of the unmerged DogeOS69/dogeos-reth#52 (withdrawal queue upgrade, on top
+of `tsuki-v0.13.1`) until that change is tagged:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `tsuki-v0.13` (`1654dbe9cb08e30a193d8ead9b996e784ffea84d`) |
+| `DogeOS69/dogeos-reth` | `4fdcf9678c19a810412d840f61ab12fc68466bac` (PR #52) |
 | `DogeOS69/reth` | `tsuki-v0.13` (`09c6b809af6d7c2da35f48dd125924e8da793553`) |
 | `DogeOS69/dogeos-revm` | `tsuki-v0.13` (`516ff663b2fb2503dba8ef6b0d667f16334ac05a`) |
 
