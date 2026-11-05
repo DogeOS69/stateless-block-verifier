@@ -55,7 +55,9 @@ enum RegisteredChain {
     Devnet,
 }
 
-/// DogeOS DevNet (chain 221122) execution settings, copied from its genesis document.
+/// DogeOS DevNet (chain 221122) execution settings, copied from the genesis document of the
+/// deployment being upgraded. Each DevNet redeploy keeps the chain ID but gets a new genesis and
+/// new contract addresses, so these values and [`genesis::devnet`] are replaced with it.
 const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
     fee_vault_address: Some(SCROLL_FEE_VAULT_ADDRESS),
     max_tx_payload_bytes_per_block: MAX_TX_PAYLOAD_BYTES_PER_BLOCK,
