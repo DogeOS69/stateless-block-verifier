@@ -53,8 +53,9 @@ unchecked is named under "Residue" below.
   exactly the chains that make one — or override the fork the caller asked for.
   Superseded: TsukiV2 replaces `tsukiFeeParamsTime`, and a forced Tsuki also
   activates TsukiV2.
-- `get_chain_spec` resolves each registered chain by the chain id its own
-  genesis document declares. It previously mapped DogeOS mainnet to chain id
+- `get_chain_spec` resolves each chain that has a host genesis document
+  (mainnet, Chikyu, dev) by the chain id that document declares; DevNet has
+  none and returns `None`. It previously mapped DogeOS mainnet to chain id
   `0xff`, which the frozen mainnet genesis document does not use.
 - `sbv-cli run` replays its witnesses in block order, anchoring each one to the
   previous one's header, and requires `--parent-header <path>` for the first on
