@@ -405,7 +405,7 @@ fn check_base_fee(
     block: &RecoveredBlock<Block>,
 ) -> Result<(), StatelessValidationError> {
     if chain_spec.chain_config().l1_config.l2_system_config_address == Address::ZERO
-        && chain_spec.chain() != Chain::dev()
+        && chain_spec.chain().id() != Chain::dev().id()
     {
         return Err(StatelessValidationError::L2SystemConfigUnconfigured {
             block_number: block.number,
@@ -1302,9 +1302,13 @@ mod base_fee_rule_tests {
     /// The development chain names the zero address, and its node reads that account and finds an
     /// authenticated absence. The verifier has to agree with it rather than refuse the chain, or
     /// every block the development node produces would be unprovable.
-    #[test]
-    fn the_registered_development_chain_uses_the_default_overhead() {
-        let chain_spec = build_chain_spec_force_hardfork(DOGEOS_DEV.chain, Hardfork::Tsuki);
+    ///
+    /// The chain is recognised by its numeric id, however the caller spelled it.
+    #[rstest::rstest]
+    #[case::named(DOGEOS_DEV.chain)]
+    #[case::numeric(Chain::from_id_unchecked(DOGEOS_DEV.chain.id()))]
+    fn the_registered_development_chain_uses_the_default_overhead(#[case] chain: Chain) {
+        let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
         assert_eq!(system_config(&chain_spec), Address::ZERO);
         // The node reads slot 101 of the zero account; in a real state that absence is
         // authenticated, which is what the default overhead is for.
