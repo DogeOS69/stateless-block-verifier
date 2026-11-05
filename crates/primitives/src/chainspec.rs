@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use alloy_consensus::Header;
-use alloy_primitives::U256;
+use alloy_primitives::{U256, address};
 use dogeos_chainspec::{
-    DOGEOS_BASE_FEE_PARAMS_FEYNMAN, DOGEOS_BASE_FEE_PARAMS_TSUKI, ScrollChainConfig,
+    DOGEOS_BASE_FEE_PARAMS_FEYNMAN, DOGEOS_BASE_FEE_PARAMS_TSUKI, L1Config,
+    MAX_TX_PAYLOAD_BYTES_PER_BLOCK, SCROLL_FEE_VAULT_ADDRESS, ScrollChainConfig,
 };
 use dogeos_hardforks::DogeosChainHardforks;
 use reth_chainspec::BaseFeeParamsKind;
@@ -28,19 +29,23 @@ pub type ChainSpec = scroll::DogeosChainSpec;
 /// Get the full host chain spec, including genesis allocations.
 ///
 /// This initializes the selected upstream genesis document. Guests should use
-/// [`build_chain_spec_force_hardfork`] instead.
+/// [`build_chain_spec_force_hardfork`] instead. A registered chain without a genesis document
+/// here (DevNet) returns `None`.
 pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
-    registered(chain).map(|entry| match entry {
-        RegisteredChain::Mainnet => DOGEOS_MAINNET.clone(),
-        RegisteredChain::Chikyu => DOGEOS_CHIKYU.clone(),
-        RegisteredChain::Dev => DOGEOS_DEV.clone(),
+    registered(chain).and_then(|entry| match entry {
+        RegisteredChain::Mainnet => Some(DOGEOS_MAINNET.clone()),
+        RegisteredChain::Chikyu => Some(DOGEOS_CHIKYU.clone()),
+        RegisteredChain::Dev => Some(DOGEOS_DEV.clone()),
+        // DevNet has no published genesis document; use `GuestChainConfig`.
+        RegisteredChain::Devnet => None,
     })
 }
 
 /// Whether this build knows the chain's execution configuration, without loading its genesis.
 ///
 /// Unknown chains fall back to the development configuration, whose L2SystemConfig address is
-/// zero. The verifier refuses to derive a base fee from that placeholder for an unknown chain.
+/// zero. The verifier refuses to derive a base fee from that placeholder on any chain but the
+/// development chain.
 pub fn is_registered_chain(chain: Chain) -> bool {
     registered(chain).is_some()
 }
@@ -49,12 +54,34 @@ enum RegisteredChain {
     Mainnet,
     Chikyu,
     Dev,
+    Devnet,
 }
+
+/// DogeOS DevNet (chain 221122) execution settings of the deployment being upgraded. Execution
+/// and proving read only the fee vault, the L2SystemConfig address and the withdrawal-queue
+/// upgrade entry; the maximum payload size and the L1 values are node and rollup settings kept
+/// for completeness. Each DevNet redeploy keeps the chain ID but gets a new genesis and new
+/// contract addresses, so these values and [`genesis::devnet`] must be replaced on every redeploy.
+const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
+    fee_vault_address: Some(SCROLL_FEE_VAULT_ADDRESS),
+    max_tx_payload_bytes_per_block: MAX_TX_PAYLOAD_BYTES_PER_BLOCK,
+    l1_config: L1Config {
+        l1_chain_id: 111_111,
+        l1_message_queue_address: address!("F5365F38a51074655e9DCd6119D0D894117e6623"),
+        l1_message_queue_v2_address: address!("9C1c423077ACf5550dbDE164d6ab018326d35404"),
+        scroll_chain_address: address!("F36D083aEBC35f6778445fB42b359F42Ac39e171"),
+        l2_system_config_address: address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd"),
+        num_l1_messages_per_block: 10,
+    },
+    // Set from DevNet's frozen checkpoint when it is upgraded.
+    withdrawal_queue_upgrade: None,
+};
 
 fn registered(chain: Chain) -> Option<RegisteredChain> {
     match chain.id() {
         1_122_005 => Some(RegisteredChain::Mainnet),
         6_281_971 => Some(RegisteredChain::Chikyu),
+        221_122 => Some(RegisteredChain::Devnet),
         id if id == Chain::dev().id() => Some(RegisteredChain::Dev),
         _ => None,
     }
@@ -62,7 +89,10 @@ fn registered(chain: Chain) -> Option<RegisteredChain> {
 
 /// Get chain spec or build one from dev config as blueprint.
 ///
-/// Like [`get_chain_spec`], this is a host API that loads a full genesis document.
+/// Like [`get_chain_spec`], this is a host API that loads a full genesis document. DevNet has no
+/// host genesis document, so it also gets the blueprint: the dev genesis header and a zero
+/// L2SystemConfig address, which the verifier refuses. Use [`build_chain_spec_force_hardfork`]
+/// for DevNet.
 pub fn get_chain_spec_or_build<F>(chain: Chain, f: F) -> Arc<ChainSpec>
 where
     F: Fn(&mut ChainSpec),
@@ -101,6 +131,7 @@ impl GuestChainConfig {
             RegisteredChain::Mainnet => (ScrollChainConfig::dogeos_mainnet(), genesis::mainnet()),
             RegisteredChain::Chikyu => (ScrollChainConfig::dogeos_chikyu(), genesis::chikyu()),
             RegisteredChain::Dev => (ScrollChainConfig::dev(), genesis::dev()),
+            RegisteredChain::Devnet => (DOGEOS_DEVNET_CONFIG, genesis::devnet()),
         };
         Self {
             chain,
@@ -235,8 +266,8 @@ mod tests {
         assert!(chain_spec.is_fork_active_at_block(Hardfork::Galileo, 10));
     }
 
-    /// Every registered chain resolves by the chain id its own genesis document declares, so a
-    /// genesis change cannot leave the lookup pointing at the wrong specification.
+    /// Every chain with a host genesis document resolves by the chain id that document declares,
+    /// so a genesis change cannot leave the lookup pointing at the wrong specification.
     #[test]
     fn registered_chains_resolve_by_their_own_chain_id() {
         use super::*;
@@ -285,6 +316,26 @@ mod tests {
         assert_eq!(
             DOGEOS_CHIKYU.genesis_header().hash_slow(),
             DOGEOS_CHIKYU_GENESIS_HASH
+        );
+    }
+
+    /// DevNet's guest header must hash to its block 0, read from a DevNet node.
+    #[test]
+    fn the_devnet_genesis_header_hashes_to_its_block_zero() {
+        use super::*;
+        use alloy_primitives::b256;
+
+        let devnet = Chain::from_id(221_122);
+        assert!(is_registered_chain(devnet));
+        assert!(get_chain_spec(devnet).is_none());
+        let config = GuestChainConfig::for_chain(devnet);
+        assert_eq!(
+            config.config.l1_config.l2_system_config_address,
+            address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd")
+        );
+        assert_eq!(
+            config.genesis_header.hash_slow(),
+            b256!("4bc34b953d056b7444b9cb3087611092aae68ed80a8e51ce41fc0283def1bc02")
         );
     }
 

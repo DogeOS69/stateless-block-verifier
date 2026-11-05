@@ -12,7 +12,8 @@ cargo build --bin sbv-cli --release
 ## Verify witness files
 
 Pass one or more JSON witness files to `run`. Without `--hardfork`, the CLI selects the
-chain specification from the witness chain ID (DogeOS mainnet, Chikyu, or dev).
+chain specification from the witness chain ID (DogeOS mainnet, Chikyu, or dev). DevNet has no
+genesis document here, so its witnesses need `--hardfork tsuki`.
 
 Every invocation requires the trusted parent header of the first witness with `--parent-header`,
 including pre-Tsuki forks. The file accepts a witness's `header` object or an RPC block header.

@@ -1775,7 +1775,7 @@ dependencies = [
 [[package]]
 name = "dogeos-chainspec"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-chains",
  "alloy-consensus",
@@ -1798,7 +1798,7 @@ dependencies = [
 [[package]]
 name = "dogeos-hardforks"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-hardforks",
  "auto_impl",
@@ -1808,7 +1808,7 @@ dependencies = [
 [[package]]
 name = "dogeos-protocol-types"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1824,7 +1824,7 @@ dependencies = [
 [[package]]
 name = "dogeos-reth-consensus"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives",
@@ -1840,7 +1840,7 @@ dependencies = [
 [[package]]
 name = "dogeos-reth-evm"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1867,7 +1867,7 @@ dependencies = [
 [[package]]
 name = "dogeos-reth-primitives"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1885,7 +1885,7 @@ dependencies = [
 [[package]]
 name = "dogeos-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/DogeOS69/dogeos-reth.git?tag=tsuki-v0.13#1654dbe9cb08e30a193d8ead9b996e784ffea84d"
+source = "git+https://github.com/DogeOS69/dogeos-reth.git?rev=1f08d99ba062e2f0b3d993230544b5bff889587f#1f08d99ba062e2f0b3d993230544b5bff889587f"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2041,7 +2041,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4492,7 +4492,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4549,7 +4549,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5201,7 +5201,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5781,7 +5781,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

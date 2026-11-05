@@ -4,7 +4,7 @@ use eyre::ContextCompat;
 use sbv::{
     core::{verifier::VerifyResult, witness::BlockWitness},
     primitives::{
-        chainspec::{Chain, build_chain_spec_force_hardfork, get_chain_spec},
+        chainspec::{Chain, build_chain_spec_force_hardfork, get_chain_spec, is_registered_chain},
         hardforks::Hardfork,
         types::Header,
     },
@@ -132,7 +132,16 @@ fn run_witness(
         );
         build_chain_spec_force_hardfork(chain, hardfork)
     } else {
-        get_chain_spec(chain).context("chain not support")?
+        get_chain_spec(chain).with_context(|| {
+            if is_registered_chain(chain) {
+                format!(
+                    "chain {} has no host genesis document; pass --hardfork tsuki",
+                    chain.id()
+                )
+            } else {
+                format!("chain {} is not supported", chain.id())
+            }
+        })?
     };
     verify_catch_panics(witness, parent_header, chain_spec).inspect(|_| dev_info!("verified"))
 }
@@ -170,6 +179,24 @@ mod tests {
 
     fn witness(json: &str) -> BlockWitness {
         serde_json::from_str(json).unwrap()
+    }
+
+    /// Without `--hardfork`, DevNet points at the flag and an unknown chain is reported as such.
+    #[test]
+    fn a_chain_without_a_host_spec_is_reported_before_verification() {
+        let unknown = witness(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ));
+        let mut devnet = unknown.clone();
+        devnet.chain_id = 221_122;
+        for (witness, message) in [
+            (devnet, "pass --hardfork tsuki"),
+            (unknown, "is not supported"),
+        ] {
+            let parent = witness.header.clone();
+            let error = run_witness(Path::new("witness.json"), witness, parent, None).unwrap_err();
+            assert!(error.to_string().contains(message), "{error}");
+        }
     }
 
     /// A gap, repeat, reversed range or second chain cannot reuse the preceding witness as parent.
