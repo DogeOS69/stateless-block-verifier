@@ -79,13 +79,15 @@ Three cases, deliberately distinct:
 - the witness does not resolve the account or the slot: the sparse trie aborts
   on unresolved node access and the proof fails. It must never fall back to the
   default, because the prover chooses what the witness contains;
-- the chain is **not registered** in this build: its configuration is the
-  development blueprint's, whose L2SystemConfig address is the zero address.
-  The zero account is normally an authenticated absence, which would read as the
-  default overhead while nothing had been verified, so an unregistered chain is
-  refused rather than defaulted. A *registered* chain whose own configuration
-  names the zero address — the development chain does — is proven as it is,
-  because its node reads that same account and finds that same absence.
+- the chain's configuration names the zero L2SystemConfig address and the chain
+  is not the development chain (id 1337): an unknown chain gets the development
+  blueprint's configuration, and so does a host spec built from that blueprint
+  for DevNet (221122), which is registered for guests only and has no host
+  genesis document. The zero account is normally an authenticated absence,
+  which would read as the default overhead while nothing had been verified, so
+  such a chain is refused rather than defaulted. The development chain's own
+  configuration names the zero address and is proven as it is, because its node
+  reads that same account and finds that same absence.
 
 ## Residue: what the block hash commits to and the verifier does not check
 

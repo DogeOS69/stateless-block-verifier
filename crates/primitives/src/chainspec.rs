@@ -44,7 +44,8 @@ pub fn get_chain_spec(chain: Chain) -> Option<Arc<ChainSpec>> {
 /// Whether this build knows the chain's execution configuration, without loading its genesis.
 ///
 /// Unknown chains fall back to the development configuration, whose L2SystemConfig address is
-/// zero. The verifier refuses to derive a base fee from that placeholder for an unknown chain.
+/// zero. The verifier refuses to derive a base fee from that placeholder on any chain but the
+/// development chain.
 pub fn is_registered_chain(chain: Chain) -> bool {
     registered(chain).is_some()
 }
@@ -56,8 +57,9 @@ enum RegisteredChain {
     Devnet,
 }
 
-/// DogeOS DevNet (chain 221122) execution settings, copied from the genesis document of the
-/// deployment being upgraded. Each DevNet redeploy keeps the chain ID but gets a new genesis and
+/// DogeOS DevNet (chain 221122) execution settings of the deployment being upgraded. Execution
+/// and proving read only the fee vault and the L2SystemConfig address; the L1 values are kept for
+/// completeness. Each DevNet redeploy keeps the chain ID but gets a new genesis and
 /// new contract addresses, so these values and [`genesis::devnet`] must be replaced on every
 /// redeploy.
 const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
@@ -87,7 +89,10 @@ fn registered(chain: Chain) -> Option<RegisteredChain> {
 
 /// Get chain spec or build one from dev config as blueprint.
 ///
-/// Like [`get_chain_spec`], this is a host API that loads a full genesis document.
+/// Like [`get_chain_spec`], this is a host API that loads a full genesis document. DevNet has no
+/// host genesis document, so it also gets the blueprint: the dev genesis header and a zero
+/// L2SystemConfig address, which the verifier refuses. Use [`build_chain_spec_force_hardfork`]
+/// for DevNet.
 pub fn get_chain_spec_or_build<F>(chain: Chain, f: F) -> Arc<ChainSpec>
 where
     F: Fn(&mut ChainSpec),
