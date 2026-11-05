@@ -178,6 +178,24 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    /// Without `--hardfork`, DevNet points at the flag and an unknown chain is reported as such.
+    #[test]
+    fn a_chain_without_a_host_spec_is_reported_before_verification() {
+        let unknown = witness(include_str!(
+            "../../../testdata/scroll/feynman/534352-19604670.json"
+        ));
+        let mut devnet = unknown.clone();
+        devnet.chain_id = 221_122;
+        for (witness, message) in [
+            (devnet, "pass --hardfork tsuki"),
+            (unknown, "is not supported"),
+        ] {
+            let parent = witness.header.clone();
+            let error = run_witness(Path::new("witness.json"), witness, parent, None).unwrap_err();
+            assert!(error.to_string().contains(message), "{error}");
+        }
+    }
+
     /// A gap, repeat, reversed range or second chain cannot reuse the preceding witness as parent.
     #[test]
     fn only_the_directly_following_block_of_the_same_chain_is_an_anchor() {
