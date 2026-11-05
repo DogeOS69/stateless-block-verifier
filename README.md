@@ -70,7 +70,7 @@ of `tsuki-v0.13.1`) until that change is tagged:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `4fdcf9678c19a810412d840f61ab12fc68466bac` (PR #52) |
+| `DogeOS69/dogeos-reth` | `1f08d99ba062e2f0b3d993230544b5bff889587f` (PR #52) |
 | `DogeOS69/reth` | `tsuki-v0.13` (`09c6b809af6d7c2da35f48dd125924e8da793553`) |
 | `DogeOS69/dogeos-revm` | `tsuki-v0.13` (`516ff663b2fb2503dba8ef6b0d667f16334ac05a`) |
 
