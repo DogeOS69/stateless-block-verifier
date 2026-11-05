@@ -671,7 +671,7 @@ mod base_fee_rule_tests {
             assert_ne!(expected, Address::ZERO, "chain {chain}");
         }
         // An unregistered chain id keeps the development blueprint, whose L2SystemConfig address
-        // is the zero address - the same account the development node itself reads.
+        // is the zero address.
         let spec = build_chain_spec_force_hardfork(Chain::from_id(424_242), Hardfork::Tsuki);
         assert_eq!(system_config(&spec), Address::ZERO);
     }
@@ -815,7 +815,11 @@ mod base_fee_rule_tests {
         let tsuki_v2_fee = 11_262_500_000;
         let mut parent = parent(9_500_000_000, GAS_LIMIT);
 
-        for chain in [DOGEOS_MAINNET.chain, DOGEOS_CHIKYU.chain] {
+        for chain in [
+            DOGEOS_MAINNET.chain,
+            DOGEOS_CHIKYU.chain,
+            Chain::from_id(221_122),
+        ] {
             let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
             let state = state_with(&[(
                 system_config(&chain_spec),

@@ -134,9 +134,12 @@ fn run_witness(
     } else {
         get_chain_spec(chain).with_context(|| {
             if is_registered_chain(chain) {
-                format!("chain {chain} has no host genesis document; pass --hardfork tsuki")
+                format!(
+                    "chain {} has no host genesis document; pass --hardfork tsuki",
+                    chain.id()
+                )
             } else {
-                format!("chain {chain} is not supported")
+                format!("chain {} is not supported", chain.id())
             }
         })?
     };
