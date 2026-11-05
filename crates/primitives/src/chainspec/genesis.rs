@@ -1,7 +1,9 @@
-//! Genesis headers synced against dogeos-reth `tsuki-v0.12` (`23a1737c`).
+//! Genesis headers of the registered chains.
 //!
-//! State roots were computed once from the upstream allocations on the host. Keep these
-//! headers in sync when repinning dogeos-reth; the host parity tests compare every field.
+//! The mainnet, Chikyu and dev state roots were computed once from the upstream allocations on
+//! the host. Keep those headers in sync when repinning dogeos-reth; the host parity tests compare
+//! every field. DevNet has no genesis document in dogeos-reth, so its header is checked only
+//! against its block 0 hash.
 
 use alloy_consensus::Header;
 use alloy_primitives::{U256, b256, bytes};
@@ -40,8 +42,8 @@ pub(super) fn dev() -> Header {
     }
 }
 
-/// DogeOS DevNet (chain 221122) block 0, read from a DevNet node; it has no published genesis
-/// document here.
+/// DogeOS DevNet (chain 221122) block 0 of the deployment being upgraded, which hashes to
+/// `0x4bc34b95…bc02`.
 pub(super) fn devnet() -> Header {
     Header {
         state_root: b256!("a325dcb6788ee5e537bd469ed956d479de42652939983160b0ad502f2a3e4a58"),

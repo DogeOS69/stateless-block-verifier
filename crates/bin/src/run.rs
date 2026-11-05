@@ -4,7 +4,7 @@ use eyre::ContextCompat;
 use sbv::{
     core::{verifier::VerifyResult, witness::BlockWitness},
     primitives::{
-        chainspec::{Chain, build_chain_spec_force_hardfork, get_chain_spec},
+        chainspec::{Chain, build_chain_spec_force_hardfork, get_chain_spec, is_registered_chain},
         hardforks::Hardfork,
         types::Header,
     },
@@ -132,7 +132,13 @@ fn run_witness(
         );
         build_chain_spec_force_hardfork(chain, hardfork)
     } else {
-        get_chain_spec(chain).context("chain not support")?
+        get_chain_spec(chain).with_context(|| {
+            if is_registered_chain(chain) {
+                format!("chain {chain} has no host genesis document; pass --hardfork tsuki")
+            } else {
+                format!("chain {chain} is not supported")
+            }
+        })?
     };
     verify_catch_panics(witness, parent_header, chain_spec).inspect(|_| dev_info!("verified"))
 }
