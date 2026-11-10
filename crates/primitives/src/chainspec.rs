@@ -18,7 +18,7 @@ pub use reth_chainspec::{
 };
 
 pub use dogeos_chainspec as scroll;
-pub use dogeos_chainspec::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET};
+pub use dogeos_chainspec::{DOGEOS_CHIKYU, DOGEOS_DEV, DOGEOS_MAINNET, WithdrawalQueueCheckpoint};
 
 mod genesis;
 
@@ -92,6 +92,22 @@ pub struct GuestChainConfig {
 }
 
 impl GuestChainConfig {
+    /// Build the post-cut Tsuki proving spec with its authenticated activation timestamp.
+    ///
+    /// Set `config.withdrawal_queue_checkpoint` from the same frozen capture as the node before
+    /// calling this for a migrating network. Neither the timestamp nor the checkpoint may come
+    /// from unchecked witness data. Callers must reject executed blocks before this timestamp;
+    /// the parent header may precede it. Mainnet uses timestamp zero and no checkpoint because
+    /// its genesis already contains the hash-chain queue.
+    pub fn build_tsuki_at(self, timestamp: u64) -> Arc<ChainSpec> {
+        let mut spec = self.build_force_hardfork(Hardfork::TsukiV2);
+        Arc::make_mut(&mut spec)
+            .inner
+            .hardforks
+            .insert(Hardfork::TsukiV2, ForkCondition::Timestamp(timestamp));
+        spec
+    }
+
     /// Load native configuration for a registered chain, or the development fallback.
     ///
     /// No upstream lazy chain spec is initialized. Unknown chain IDs retain their identity but
@@ -180,10 +196,10 @@ impl GuestChainConfig {
 
 /// The last DogeOS fork a forced `hardfork` activates.
 ///
-/// TsukiV2 changes only fee and gas-pricing rules, so the codec and the prover have no fork name
-/// for it and keep calling the post-cut era Tsuki. The guest only proves blocks after the
-/// TsukiV2 cut, so forcing Tsuki activates TsukiV2 as well; Tsuki without TsukiV2 is the
-/// historical Chikyu era, which is never proven.
+/// The codec keeps calling the post-cut era Tsuki. TsukiV2 also replaces the legacy withdrawal
+/// queue after validating its trusted checkpoint. Forcing Tsuki activates TsukiV2 at zero;
+/// production guests for migrating networks must instead use [`GuestChainConfig::build_tsuki_at`]
+/// and enforce the authenticated cutover timestamp before executing any block.
 pub fn forced_through(hardfork: Hardfork) -> Hardfork {
     match hardfork {
         Hardfork::Tsuki => Hardfork::TsukiV2,
@@ -202,6 +218,43 @@ pub fn build_chain_spec_force_hardfork(chain: Chain, hardfork: Hardfork) -> Arc<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scheduled_guest_keeps_the_checkpoint_and_cutover_boundary() {
+        use super::*;
+        use alloy_primitives::B256;
+        let activation = 2_000_000_000;
+        let checkpoint = WithdrawalQueueCheckpoint {
+            legacy_code_hash: B256::repeat_byte(1),
+            seed_root: B256::repeat_byte(2),
+            next_message_index: 1173,
+        };
+        let mut config = GuestChainConfig::for_chain(DOGEOS_CHIKYU.chain);
+        config.config.withdrawal_queue_checkpoint = Some(checkpoint);
+        let guest = config.build_tsuki_at(activation);
+        assert_eq!(guest.config.withdrawal_queue_checkpoint, Some(checkpoint));
+        assert!(!guest.is_fork_active_at_timestamp(Hardfork::TsukiV2, activation - 1));
+        assert!(guest.is_fork_active_at_timestamp(Hardfork::TsukiV2, activation));
+        assert!(guest.is_fork_active_at_timestamp(Hardfork::TsukiV2, activation + 1));
+        assert_eq!(
+            guest.base_fee_params_at_timestamp(activation - 1),
+            BaseFeeParams::new(8, 2)
+        );
+        assert_eq!(
+            guest.base_fee_params_at_timestamp(activation),
+            BaseFeeParams::new(48, 10)
+        );
+        assert!(guest.genesis().alloc.is_empty());
+    }
+
+    #[test]
+    fn mainnet_guest_needs_no_migration_checkpoint() {
+        use super::*;
+        let guest = GuestChainConfig::for_chain(DOGEOS_MAINNET.chain).build_tsuki_at(0);
+        assert_eq!(guest.config.withdrawal_queue_checkpoint, None);
+        assert!(guest.is_fork_active_at_timestamp(Hardfork::TsukiV2, 0));
+        assert_eq!(guest.config, DOGEOS_MAINNET.config);
+    }
+
     #[test]
     fn known_chain_specs_are_dogeos_only() {
         use super::*;
