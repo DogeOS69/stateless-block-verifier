@@ -65,13 +65,13 @@ schedules against the pinned implementation.
 ## DogeOS dependency pins
 
 The workspace uses the following revisions, matching dogeos-reth's dependency pins. dogeos-reth
-is pinned to a commit of the unmerged DogeOS69/dogeos-reth#52 (withdrawal queue upgrade, on top
-of `tsuki-v0.13.1`) until that change is tagged:
+is pinned to the head of the unmerged DogeOS69/dogeos-reth#58 (the state-keyed withdrawal queue
+swap at TsukiV2) until that change is tagged:
 
 | Repository | Revision |
 | --- | --- |
-| `DogeOS69/dogeos-reth` | `1f08d99ba062e2f0b3d993230544b5bff889587f` (PR #52) |
-| `DogeOS69/reth` | `tsuki-v0.13` (`09c6b809af6d7c2da35f48dd125924e8da793553`) |
+| `DogeOS69/dogeos-reth` | `50aec262f28fe746fa5f2b5dd3fff1cfd96c0c42` (PR #58) |
+| `DogeOS69/reth` | `b4a77efea79928b82712669ac71eee0e5f878db5` |
 | `DogeOS69/dogeos-revm` | `tsuki-v0.13` (`516ff663b2fb2503dba8ef6b0d667f16334ac05a`) |
 
 Direct and transitive dependencies use the same revisions and Git sources; `Cargo.lock` pins their commits.

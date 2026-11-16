@@ -58,9 +58,8 @@ enum RegisteredChain {
 }
 
 /// DogeOS DevNet (chain 221122) execution settings of the deployment being upgraded. Execution
-/// and proving read only the fee vault, the L2SystemConfig address and the withdrawal-queue
-/// upgrade entry; the maximum payload size and the L1 values are node and rollup settings kept
-/// for completeness. Each DevNet redeploy keeps the chain ID but gets a new genesis and new
+/// and proving read only the fee vault and the L2SystemConfig address; the maximum payload size
+/// and the L1 values are node and rollup settings kept for completeness. Each DevNet redeploy keeps the chain ID but gets a new genesis and new
 /// contract addresses, so these values and [`genesis::devnet`] must be replaced on every redeploy.
 const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
     fee_vault_address: Some(SCROLL_FEE_VAULT_ADDRESS),
@@ -73,8 +72,6 @@ const DOGEOS_DEVNET_CONFIG: ScrollChainConfig = ScrollChainConfig {
         l2_system_config_address: address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd"),
         num_l1_messages_per_block: 10,
     },
-    // Set from DevNet's frozen checkpoint when it is upgraded.
-    withdrawal_queue_upgrade: None,
 };
 
 fn registered(chain: Chain) -> Option<RegisteredChain> {
