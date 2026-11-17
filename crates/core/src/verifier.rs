@@ -11,7 +11,7 @@ use reth_primitives_traits::RecoveredBlock;
 use sbv_primitives::{
     Address, B256, U256,
     alloy_primitives::map::B256Map,
-    chainspec::{ChainSpec, EthChainSpec, is_registered_chain, scroll::ChainConfig},
+    chainspec::{Chain, ChainSpec, EthChainSpec, scroll::ChainConfig},
     hardforks::DogeosHardforks,
     types::{
         Header,
@@ -391,11 +391,12 @@ fn next_message_index_from_value(next_message_index: U256) -> Result<u64, Provid
 /// slot and the sparse storage trie initialises. A witness that does not resolve the account or the
 /// slot fails the proof; only an *authenticated* absence falls back to the default overhead.
 ///
-/// An **unregistered** chain is refused outright. Its configuration is the development blueprint's,
-/// whose L2SystemConfig address is the zero address; the zero account is normally an authenticated
-/// absence, so the overhead would read as the default while nothing had been verified. A
-/// registered chain whose own configuration names the zero address - the development chain does -
-/// is proven as it is, because its node reads that same account and finds that same absence.
+/// A zero L2SystemConfig address is refused on every chain but the development chain. Unknown
+/// chains, and host specs built from the development blueprint for a registered chain, carry that
+/// placeholder; the zero account is normally an authenticated absence, so the overhead would read
+/// as the default while nothing had been verified. The development chain's own configuration
+/// names the zero address, and its node reads that same account and finds that same absence, so
+/// it is proven as it is.
 fn check_base_fee(
     chain_spec: &Arc<ChainSpec>,
     trie: &SparseState,
@@ -404,7 +405,7 @@ fn check_base_fee(
     block: &RecoveredBlock<Block>,
 ) -> Result<(), StatelessValidationError> {
     if chain_spec.chain_config().l1_config.l2_system_config_address == Address::ZERO
-        && !is_registered_chain(chain_spec.chain())
+        && chain_spec.chain().id() != Chain::dev().id()
     {
         return Err(StatelessValidationError::L2SystemConfigUnconfigured {
             block_number: block.number,
@@ -660,13 +661,17 @@ mod base_fee_rule_tests {
                 DOGEOS_CHIKYU.chain,
                 DOGEOS_CHIKYU.config.l1_config.l2_system_config_address,
             ),
+            (
+                Chain::from_id(221_122),
+                sbv_primitives::address!("A19d94Bf3861232F09014FC51dc2D3728eE876bd"),
+            ),
         ] {
             let spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
             assert_eq!(system_config(&spec), expected, "chain {chain}");
             assert_ne!(expected, Address::ZERO, "chain {chain}");
         }
         // An unregistered chain id keeps the development blueprint, whose L2SystemConfig address
-        // is the zero address - the same account the development node itself reads.
+        // is the zero address.
         let spec = build_chain_spec_force_hardfork(Chain::from_id(424_242), Hardfork::Tsuki);
         assert_eq!(system_config(&spec), Address::ZERO);
     }
@@ -810,7 +815,11 @@ mod base_fee_rule_tests {
         let tsuki_v2_fee = 11_262_500_000;
         let mut parent = parent(9_500_000_000, GAS_LIMIT);
 
-        for chain in [DOGEOS_MAINNET.chain, DOGEOS_CHIKYU.chain] {
+        for chain in [
+            DOGEOS_MAINNET.chain,
+            DOGEOS_CHIKYU.chain,
+            Chain::from_id(221_122),
+        ] {
             let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
             let state = state_with(&[(
                 system_config(&chain_spec),
@@ -1126,27 +1135,34 @@ mod base_fee_rule_tests {
 
     /// A chain whose configuration names no L2SystemConfig contract has no authenticated source
     /// for the overhead. The zero address is normally an authenticated absence, which would read
-    /// as the default overhead while having verified nothing, so it is refused.
+    /// as the default overhead while having verified nothing, so it is refused: for an unknown
+    /// chain, and for DevNet when a host spec is built for it from the development blueprint.
     #[test]
     fn an_unset_l2_system_config_address_is_refused() {
-        let chain = Chain::from_id(424_242);
-        let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
-        assert_eq!(system_config(&chain_spec), Address::ZERO);
-        let state = state_with(&[(OTHER_ACCOUNT, &[])]);
-        let block = tsuki_witness_11().build_reth_block().unwrap();
-        let bytecode = B256Map::default();
+        use sbv_primitives::chainspec::get_chain_spec_or_build;
 
-        assert!(matches!(
-            check_base_fee(
-                &chain_spec,
-                &state,
-                &bytecode,
-                &parent(1_000_000_000, GAS_LIMIT / 10),
-                &block
-            ),
-            Err(StatelessValidationError::L2SystemConfigUnconfigured { chain_id, .. })
-                if chain_id == chain.id()
-        ));
+        for chain_spec in [
+            build_chain_spec_force_hardfork(Chain::from_id(424_242), Hardfork::Tsuki),
+            get_chain_spec_or_build(Chain::from_id(221_122), |_| {}),
+        ] {
+            let chain = chain_spec.chain();
+            assert_eq!(system_config(&chain_spec), Address::ZERO);
+            let state = state_with(&[(OTHER_ACCOUNT, &[])]);
+            let block = tsuki_witness_11().build_reth_block().unwrap();
+            let bytecode = B256Map::default();
+
+            assert!(matches!(
+                check_base_fee(
+                    &chain_spec,
+                    &state,
+                    &bytecode,
+                    &parent(1_000_000_000, GAS_LIMIT / 10),
+                    &block
+                ),
+                Err(StatelessValidationError::L2SystemConfigUnconfigured { chain_id, .. })
+                    if chain_id == chain.id()
+            ));
+        }
     }
 
     /// The caller supplies the trusted parent, so a parent without a base fee is reported rather
@@ -1287,14 +1303,17 @@ mod base_fee_rule_tests {
         }
     }
 
-    /// The development chain is registered and names the zero address, and its node reads that
-    /// account and finds an authenticated absence. The verifier has to agree with it rather than
-    /// refuse the chain, or every block the development node produces would be unprovable.
-    #[test]
-    fn the_registered_development_chain_uses_the_default_overhead() {
-        let chain_spec = build_chain_spec_force_hardfork(DOGEOS_DEV.chain, Hardfork::Tsuki);
+    /// The development chain names the zero address, and its node reads that account and finds an
+    /// authenticated absence. The verifier has to agree with it rather than refuse the chain, or
+    /// every block the development node produces would be unprovable.
+    ///
+    /// The chain is recognised by its numeric id, however the caller spelled it.
+    #[rstest::rstest]
+    #[case::named(DOGEOS_DEV.chain)]
+    #[case::numeric(Chain::from_id_unchecked(DOGEOS_DEV.chain.id()))]
+    fn the_registered_development_chain_uses_the_default_overhead(#[case] chain: Chain) {
+        let chain_spec = build_chain_spec_force_hardfork(chain, Hardfork::Tsuki);
         assert_eq!(system_config(&chain_spec), Address::ZERO);
-        assert!(is_registered_chain(chain_spec.chain()));
         // The node reads slot 101 of the zero account; in a real state that absence is
         // authenticated, which is what the default overhead is for.
         let state = state_with(&[(OTHER_ACCOUNT, &[])]);

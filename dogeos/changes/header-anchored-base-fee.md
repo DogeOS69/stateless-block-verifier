@@ -53,8 +53,9 @@ unchecked is named under "Residue" below.
   exactly the chains that make one — or override the fork the caller asked for.
   Superseded: TsukiV2 replaces `tsukiFeeParamsTime`, and a forced Tsuki also
   activates TsukiV2.
-- `get_chain_spec` resolves each registered chain by the chain id its own
-  genesis document declares. It previously mapped DogeOS mainnet to chain id
+- `get_chain_spec` resolves each chain that has a host genesis document
+  (mainnet, Chikyu, dev) by the chain id that document declares; DevNet has
+  none and returns `None`. It previously mapped DogeOS mainnet to chain id
   `0xff`, which the frozen mainnet genesis document does not use.
 - `sbv-cli run` replays its witnesses in block order, anchoring each one to the
   previous one's header, and requires `--parent-header <path>` for the first on
@@ -79,13 +80,15 @@ Three cases, deliberately distinct:
 - the witness does not resolve the account or the slot: the sparse trie aborts
   on unresolved node access and the proof fails. It must never fall back to the
   default, because the prover chooses what the witness contains;
-- the chain is **not registered** in this build: its configuration is the
-  development blueprint's, whose L2SystemConfig address is the zero address.
-  The zero account is normally an authenticated absence, which would read as the
-  default overhead while nothing had been verified, so an unregistered chain is
-  refused rather than defaulted. A *registered* chain whose own configuration
-  names the zero address — the development chain does — is proven as it is,
-  because its node reads that same account and finds that same absence.
+- the chain's configuration names the zero L2SystemConfig address and the chain
+  is not the development chain (id 1337): an unknown chain gets the development
+  blueprint's configuration, and so does a host spec built from that blueprint
+  for DevNet (221122), which is registered for guests only and has no host
+  genesis document. The zero account is normally an authenticated absence,
+  which would read as the default overhead while nothing had been verified, so
+  such a chain is refused rather than defaulted. The development chain's own
+  configuration names the zero address and is proven as it is, because its node
+  reads that same account and finds that same absence.
 
 ## Residue: what the block hash commits to and the verifier does not check
 
