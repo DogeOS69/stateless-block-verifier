@@ -39,3 +39,15 @@ pub(super) fn dev() -> Header {
         ..Default::default()
     }
 }
+
+/// DogeOS DevNet (chain 221122) block 0, read from a DevNet node; it has no published genesis
+/// document here.
+pub(super) fn devnet() -> Header {
+    Header {
+        state_root: b256!("a325dcb6788ee5e537bd469ed956d479de42652939983160b0ad502f2a3e4a58"),
+        gas_limit: 30_000_000,
+        difficulty: U256::from(1),
+        base_fee_per_gas: Some(100_000_000),
+        ..Default::default()
+    }
+}
